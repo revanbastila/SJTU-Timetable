@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">交大课表</string>
+    <string name="timetable_widget_description">显示今天课程与教学周次</string>
+</resources>

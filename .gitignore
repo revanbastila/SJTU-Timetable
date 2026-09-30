@@ -1,0 +1,70 @@
+.dart_tool/
+.packages
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+build/
+android/.gradle/
+android/local.properties
+*.iml
+.idea/
+*.apk
+*.aab
+
+# Android / Gradle local state
+.gradle/
+.kotlin/
+.externalNativeBuild/
+.cxx/
+local.properties
+captures/
+
+# Build outputs
+*.apks
+
+# Signing keys and private key material
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+
+# Secrets / local configuration
+.env
+.env.*
+key.properties
+keystore.properties
+signing.properties
+secrets.properties
+
+# Logs, network captures and local databases
+*.log
+*.tmp
+*.bak
+*.dump
+*.har
+*.trace
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+/screenshots/
+/debug-output/
+/network-dump/
+/webview-cache/
+/cookie-exports/
+/share-diagnostic*.json
+/cookies*.json
+/cookies*.txt
+/tokens*.json
+/tokens*.txt
+
+# Python helper caches
+__pycache__/
+*.py[cod]
+
+# OS files
+.DS_Store
+Thumbs.db

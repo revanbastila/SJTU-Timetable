@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_surface_dark"
+    android:orientation="vertical"
+    android:padding="7dp">
+
+    <LinearLayout
+        android:id="@+id/widget_header"
+        android:layout_width="match_parent"
+        android:layout_height="34dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_date"
+            android:layout_width="48dp"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical|start"
+            android:text="26"
+            android:textColor="#FFF8F7F4"
+            android:textSize="27sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_meta"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="5dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:text="2026秋季学期&#10;第2周 · 周六"
+            android:textColor="#FFD1D5DA"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:text="打开应用导入课表"
+        android:textColor="#FFD1D5DA"
+        android:textSize="13sp"
+        android:visibility="visible" />
+
+    <LinearLayout
+        android:id="@+id/widget_course_1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:background="@drawable/widget_card_dark"
+        android:gravity="center_vertical"
+        android:minHeight="44dp"
+        android:orientation="horizontal"
+        android:paddingStart="9dp"
+        android:paddingEnd="9dp"
+        android:visibility="gone">
+        <ImageView
+            android:id="@+id/widget_color_1"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:contentDescription="课程颜色" />
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <TextView
+                    android:id="@+id/widget_time_1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFE1E3E6"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:id="@+id/widget_location_1"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="end"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textColor="#FFB9C0C7"
+                    android:textSize="10sp" />
+            </LinearLayout>
+            <TextView
+                android:id="@+id/widget_name_1"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#FFF8F7F4"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widget_course_2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:background="@drawable/widget_card_dark"
+        android:gravity="center_vertical"
+        android:minHeight="44dp"
+        android:orientation="horizontal"
+        android:paddingStart="9dp"
+        android:paddingEnd="9dp"
+        android:visibility="gone">
+        <ImageView
+            android:id="@+id/widget_color_2"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:contentDescription="课程颜色" />
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <TextView
+                    android:id="@+id/widget_time_2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFE1E3E6"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:id="@+id/widget_location_2"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="end"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textColor="#FFB9C0C7"
+                    android:textSize="10sp" />
+            </LinearLayout>
+            <TextView
+                android:id="@+id/widget_name_2"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#FFF8F7F4"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/widget_course_3"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="3dp"
+        android:background="@drawable/widget_card_dark"
+        android:gravity="center_vertical"
+        android:minHeight="44dp"
+        android:orientation="horizontal"
+        android:paddingStart="9dp"
+        android:paddingEnd="9dp"
+        android:visibility="gone">
+        <ImageView
+            android:id="@+id/widget_color_3"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:contentDescription="课程颜色" />
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+                <TextView
+                    android:id="@+id/widget_time_3"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFE1E3E6"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+                <TextView
+                    android:id="@+id/widget_location_3"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="end"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:textColor="#FFB9C0C7"
+                    android:textSize="10sp" />
+            </LinearLayout>
+            <TextView
+                android:id="@+id/widget_name_3"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#FFF8F7F4"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_more"
+        android:layout_width="match_parent"
+        android:layout_height="12dp"
+        android:gravity="end|center_vertical"
+        android:textColor="#FFB9C0C7"
+        android:textSize="9sp"
+        android:visibility="gone" />
+</LinearLayout>

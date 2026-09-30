@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">libcms.lib.sjtu.edu.cn</domain>
+        <domain includeSubdomains="true">lib.sjtu.edu.cn</domain>
+        <domain includeSubdomains="false">account.lib.sjtu.edu.cn</domain>
+        <domain includeSubdomains="false">86sjt-primo.hosted.exlibrisgroup.com.cn</domain>
+        <domain includeSubdomains="false">primo.hosted.exlibrisgroup.com.cn</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">mail.sjtu.edu.cn</domain>
+    </domain-config>
+</network-security-config>
