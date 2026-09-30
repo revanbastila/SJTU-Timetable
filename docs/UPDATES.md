@@ -56,7 +56,7 @@ Manifest 新增 REQUEST_INSTALL_PACKAGES。Android 8+ 使用 canRequestPackageIn
 
 ## 签名
 
-当前 `android/app/build.gradle` 的 release 仍使用 `signingConfigs.debug`。E 盘项目目录内尚无正式签名 keystore，本次没有生成/删除/替换密钥。因此 `1.14.18+59` 尚未完成正式签名、打包或 GitHub Release。配置固定正式签名密钥后再发布；不能直接换证书覆盖已有用户安装。此前旧电脑 1.14.14 与迁移后密钥不同，无法直接覆盖该旧证书版本；后续版本必须持续使用同一正式证书。
+正式 release 使用项目外的固定 keystore，并由被 Git 忽略的 `android/key.properties` 配置 `storeFile`、`storePassword`、`keyAlias` 和 `keyPassword`。没有此配置时 release 构建会失败，debug 构建仍使用 debug 证书。正式 keystore、密码和 `key.properties` 均不得提交。首次发布后必须备份 keystore 和密码；后续版本持续使用同一证书。旧电脑 1.14.14 使用另一张证书，不能直接覆盖安装。
 
 不要提交 keystore、密码或 Token。当前没有 GitHub Actions；本次未新增 CI。将来可单独配置 tag 触发 Flutter release 构建，把固定签名材料放 GitHub Secrets，以临时文件提供给 Gradle，再创建 Release 并上传 APK。
 

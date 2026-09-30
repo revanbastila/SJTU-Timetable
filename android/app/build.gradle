@@ -4,6 +4,23 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+def releaseSigningPropertiesFile = rootProject.file('key.properties')
+def releaseSigningProperties = new Properties()
+if (releaseSigningPropertiesFile.isFile()) {
+    releaseSigningPropertiesFile.withInputStream { stream ->
+        releaseSigningProperties.load(stream)
+    }
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    if (taskGraph.allTasks.any { task -> task.name.toLowerCase(Locale.ROOT).contains('release') } &&
+        !releaseSigningPropertiesFile.isFile()) {
+        throw new GradleException(
+            'Release signing is not configured. Create the ignored android/key.properties file.'
+        )
+    }
+}
+
 android {
     namespace = "cn.sjtu.jiaotong_course"
     compileSdk = flutter.compileSdkVersion
@@ -15,6 +32,17 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    if (releaseSigningPropertiesFile.isFile()) {
+        signingConfigs {
+            release {
+                keyAlias = releaseSigningProperties['keyAlias']
+                keyPassword = releaseSigningProperties['keyPassword']
+                storeFile = file(releaseSigningProperties['storeFile'])
+                storePassword = releaseSigningProperties['storePassword']
+            }
+        }
     }
 
     compileOptions {
@@ -29,7 +57,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.debug
+            if (releaseSigningPropertiesFile.isFile()) {
+                signingConfig = signingConfigs.release
+            }
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }

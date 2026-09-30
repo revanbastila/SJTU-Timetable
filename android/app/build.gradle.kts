@@ -4,6 +4,22 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val releaseSigningPropertiesFile = rootProject.file("key.properties")
+val releaseSigningProperties = java.util.Properties()
+if (releaseSigningPropertiesFile.isFile) {
+    releaseSigningPropertiesFile.inputStream().use(releaseSigningProperties::load)
+}
+
+gradle.taskGraph.whenReady {
+    if (allTasks.any { task -> task.name.contains("Release", ignoreCase = true) } &&
+        !releaseSigningPropertiesFile.isFile
+    ) {
+        throw GradleException(
+            "Release signing is not configured. Create the ignored android/key.properties file.",
+        )
+    }
+}
+
 android {
     namespace = "cn.sjtu.jiaotong_course"
     compileSdk = flutter.compileSdkVersion
@@ -29,11 +45,22 @@ android {
         versionName = flutter.versionName
     }
 
+    if (releaseSigningPropertiesFile.isFile) {
+        signingConfigs {
+            create("release") {
+                keyAlias = releaseSigningProperties.getProperty("keyAlias")
+                keyPassword = releaseSigningProperties.getProperty("keyPassword")
+                storeFile = file(releaseSigningProperties.getProperty("storeFile"))
+                storePassword = releaseSigningProperties.getProperty("storePassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (releaseSigningPropertiesFile.isFile) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
