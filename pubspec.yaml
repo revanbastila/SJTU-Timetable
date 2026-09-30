@@ -1,7 +1,7 @@
 name: jiaotong_course
 description: 交大课表：上海交通大学研究生教务系统课表助手
 publish_to: "none"
-version: 1.14.17+58
+version: 1.14.18+59
 
 environment:
   sdk: ">=3.5.0 <4.0.0"

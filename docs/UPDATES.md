@@ -12,7 +12,7 @@
 
 当前 APK 如从 GitHub main 构建，会使用以上更新源。自动检查每 24 小时最多一次，网络失败静默；手动检查不受限频。
 
-版本配置：`pubspec.yaml` 的 `version: 1.14.17+58`；本次 APK 由脚本覆盖 versionName 为 `1.14.17.1`。加号后的 versionCode 是 58。以后每次发布必须增大 versionCode，版本名按数字段增加。支持 v/V 前缀、两段、三段和历史四段版本名。
+版本配置：`pubspec.yaml` 的 `version: 1.14.18+59`。加号前为 versionName，加号后为 versionCode。以后每次发布必须增大 versionCode，版本名按数字段增加。支持 v/V 前缀、两段、三段和历史四段版本名。
 
 在对应公开仓库的 Releases 页面创建正式 Release，tag 如 `v1.14.18`，填写标题和更新说明，将同一 applicationId、同一证书签名且 versionCode 更大的 APK 上传为附件，然后 Publish release。不能标记 Draft 或 Prerelease。更新说明支持换行、普通文本、- / * / • 列表；长内容可滚动。
 
@@ -56,7 +56,7 @@ Manifest 新增 REQUEST_INSTALL_PACKAGES。Android 8+ 使用 canRequestPackageIn
 
 ## 签名
 
-当前 `android/app/build.gradle` 的 release 仍使用 `signingConfigs.debug`。本次保留 applicationId 与既有证书，没有生成/删除/替换密钥。此证书不是正式发布签名，固定正式 keystore 前不要发布 APK Release。正式发布必须妥善备份并固定签名密钥；不能直接换证书覆盖已有用户安装。此前旧电脑 1.14.14 与迁移后密钥不同，无法直接覆盖该旧证书版本；当前电脑后续版本应持续使用同一证书。
+当前 `android/app/build.gradle` 的 release 仍使用 `signingConfigs.debug`。E 盘项目目录内尚无正式签名 keystore，本次没有生成/删除/替换密钥。因此 `1.14.18+59` 尚未完成正式签名、打包或 GitHub Release。配置固定正式签名密钥后再发布；不能直接换证书覆盖已有用户安装。此前旧电脑 1.14.14 与迁移后密钥不同，无法直接覆盖该旧证书版本；后续版本必须持续使用同一正式证书。
 
 不要提交 keystore、密码或 Token。当前没有 GitHub Actions；本次未新增 CI。将来可单独配置 tag 触发 Flutter release 构建，把固定签名材料放 GitHub Secrets，以临时文件提供给 Gradle，再创建 Release 并上传 APK。
 
