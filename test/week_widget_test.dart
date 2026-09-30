@@ -15,6 +15,16 @@ import 'package:jiaotong_course/services/notification_service.dart';
 import 'package:jiaotong_course/state/app_controller.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('cn.sjtu.jiaotong_course/updates'),
+            (call) async {
+      if (call.method == 'version') return {'name': '1.14.17', 'code': 57};
+      return {'status': 'idle'};
+    });
+  });
   testWidgets('dark interface mode applies the layered dark theme', (
     tester,
   ) async {
@@ -956,7 +966,7 @@ void main() {
     expect(find.text('student'), findsOneWidget);
     expect(find.text('账号：student'), findsNothing);
     await tester.scrollUntilVisible(
-      find.text('交大课表  ·  v1.14.16.1'),
+      find.text('交大课表  ·  v1.14.17'),
       300,
       scrollable: find.byType(Scrollable).last,
     );
@@ -969,7 +979,7 @@ void main() {
     expect(find.text('退出登录'), findsOneWidget);
     expect(
       tester.getTopLeft(find.text('退出登录')).dy,
-      lessThan(tester.getTopLeft(find.text('交大课表  ·  v1.14.16.1')).dy),
+      lessThan(tester.getTopLeft(find.text('交大课表  ·  v1.14.17')).dy),
     );
     final signOut = tester.widget<TextButton>(
       find.widgetWithText(TextButton, '退出登录'),

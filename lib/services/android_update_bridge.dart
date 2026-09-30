@@ -22,20 +22,29 @@ class AndroidUpdateBridge implements UpdatePlatform {
 
   @override
   Future<Map<String, dynamic>> download(UpdateInfo info) async =>
-      Map<String, dynamic>.from(await channel.invokeMapMethod<String, dynamic>('download', {
-        'owner': UpdateConfig.githubOwner, 'repo': UpdateConfig.githubRepo,
-        'url': info.apkUrl, 'name': info.apkName, 'size': info.apkSize,
-        'digest': info.apkDigest,
-      }) ?? const {});
+      Map<String, dynamic>.from(
+          await channel.invokeMapMethod<String, dynamic>('download', {
+                'owner': UpdateConfig.githubOwner,
+                'repo': UpdateConfig.githubRepo,
+                'url': info.apkUrl,
+                'name': info.apkName,
+                'size': info.apkSize,
+                'digest': info.apkDigest,
+              }) ??
+              const {});
   @override
-  Future<Map<String, dynamic>> state() async =>
-      Map<String, dynamic>.from(await channel.invokeMapMethod<String, dynamic>('state') ?? const {});
+  Future<Map<String, dynamic>> state() async => Map<String, dynamic>.from(
+      await channel.invokeMapMethod<String, dynamic>('state') ?? const {});
   @override
-  Future<String> install() async => await channel.invokeMethod<String>('install') ?? 'failed';
+  Future<String> install() async =>
+      await channel.invokeMethod<String>('install') ?? 'failed';
   @override
   Future<void> allowInstall() => channel.invokeMethod<void>('allowInstall');
   @override
-  Future<void> openRelease(String url) => channel.invokeMethod<void>('openRelease', {
-    'url': url, 'owner': UpdateConfig.githubOwner, 'repo': UpdateConfig.githubRepo,
-  });
+  Future<void> openRelease(String url) =>
+      channel.invokeMethod<void>('openRelease', {
+        'url': url,
+        'owner': UpdateConfig.githubOwner,
+        'repo': UpdateConfig.githubRepo,
+      });
 }

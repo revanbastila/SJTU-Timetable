@@ -18,7 +18,8 @@ class ReleaseVersion implements Comparable<ReleaseVersion> {
 
   @override
   int compareTo(ReleaseVersion other) {
-    final length = parts.length > other.parts.length ? parts.length : other.parts.length;
+    final length =
+        parts.length > other.parts.length ? parts.length : other.parts.length;
     for (var i = 0; i < length; i++) {
       final left = i < parts.length ? parts[i] : BigInt.zero;
       final right = i < other.parts.length ? other.parts[i] : BigInt.zero;
@@ -37,10 +38,16 @@ class UpdateException implements Exception {
 }
 
 class UpdateInfo {
-  const UpdateInfo({required this.version, required this.releaseName,
-    required this.releaseNotes, required this.publishedAt,
-    required this.releasePageUrl, this.apkName = '', this.apkUrl = '',
-    this.apkSize = 0, this.apkDigest = ''});
+  const UpdateInfo(
+      {required this.version,
+      required this.releaseName,
+      required this.releaseNotes,
+      required this.publishedAt,
+      required this.releasePageUrl,
+      this.apkName = '',
+      this.apkUrl = '',
+      this.apkSize = 0,
+      this.apkDigest = ''});
   final String version, releaseName, releaseNotes, releasePageUrl;
   final String apkName, apkUrl, apkDigest;
   final DateTime? publishedAt;
@@ -48,7 +55,8 @@ class UpdateInfo {
   bool get hasApk => apkUrl.isNotEmpty;
   String get displayVersion => 'v${version.replaceFirst(RegExp(r'^[vV]'), '')}';
 
-  factory UpdateInfo.fromRelease(Map<String, dynamic> json, String owner, String repo) {
+  factory UpdateInfo.fromRelease(
+      Map<String, dynamic> json, String owner, String repo) {
     final tag = (json['tag_name'] as String? ?? '').trim();
     if (ReleaseVersion.parse(tag) == null) {
       throw const UpdateException('无法识别最新版本号');
@@ -61,12 +69,14 @@ class UpdateInfo {
       throw const UpdateException('发布页面不属于配置的 GitHub 仓库');
     }
     final candidates = <Map<String, dynamic>>[];
-    for (final asset in json['assets'] is List ? json['assets'] as List : const []) {
+    for (final asset
+        in json['assets'] is List ? json['assets'] as List : const []) {
       if (asset is! Map) continue;
       final row = Map<String, dynamic>.from(asset);
       final name = row['name'] as String? ?? '';
       final url = Uri.tryParse(row['browser_download_url'] as String? ?? '');
-      if (name.toLowerCase().endsWith('.apk') && url != null &&
+      if (name.toLowerCase().endsWith('.apk') &&
+          url != null &&
           UpdateConfig.trustedAsset(url, owner, repo) &&
           (row['size'] is num && (row['size'] as num) > 0) &&
           (row['state'] == null || row['state'] == 'uploaded')) {
@@ -82,13 +92,15 @@ class UpdateInfo {
       }
     }
     selected ??= candidates.isEmpty ? null : candidates.first;
-    return UpdateInfo(version: tag, releaseName: json['name'] as String? ?? tag,
-      releaseNotes: json['body'] as String? ?? '',
-      publishedAt: DateTime.tryParse(json['published_at'] as String? ?? ''),
-      releasePageUrl: page.toString(),
-      apkName: selected?['name'] as String? ?? '',
-      apkUrl: selected?['browser_download_url'] as String? ?? '',
-      apkSize: (selected?['size'] as num?)?.toInt() ?? 0,
-      apkDigest: selected?['digest'] as String? ?? '');
+    return UpdateInfo(
+        version: tag,
+        releaseName: json['name'] as String? ?? tag,
+        releaseNotes: json['body'] as String? ?? '',
+        publishedAt: DateTime.tryParse(json['published_at'] as String? ?? ''),
+        releasePageUrl: page.toString(),
+        apkName: selected?['name'] as String? ?? '',
+        apkUrl: selected?['browser_download_url'] as String? ?? '',
+        apkSize: (selected?['size'] as num?)?.toInt() ?? 0,
+        apkDigest: selected?['digest'] as String? ?? '');
   }
 }

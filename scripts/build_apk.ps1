@@ -1,6 +1,8 @@
 param(
     [switch]$Offline,
-    [string]$AndroidBuildName
+    [string]$AndroidBuildName,
+    [string]$GitHubOwner,
+    [string]$GitHubRepo
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,6 +40,12 @@ try {
     $buildArgs = @('build', 'apk', '--release', '--no-pub', '--build-name', $buildName)
     if (-not [string]::IsNullOrWhiteSpace($buildNumber)) {
         $buildArgs += @('--build-number', $buildNumber)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($GitHubOwner)) {
+        $buildArgs += "--dart-define=GITHUB_OWNER=$GitHubOwner"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($GitHubRepo)) {
+        $buildArgs += "--dart-define=GITHUB_REPO=$GitHubRepo"
     }
     flutter @buildArgs
     if ($LASTEXITCODE -ne 0) { throw 'APK 构建失败。' }

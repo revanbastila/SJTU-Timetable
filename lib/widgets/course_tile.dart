@@ -31,7 +31,9 @@ class CourseTile extends StatelessWidget {
     final header =
         Theme.of(context).appBarTheme.foregroundColor ?? scheme.primary;
     return Material(
-        color: surface,
+        // The child's bottom margin is outside its rounded decoration. Keep
+        // that spacing transparent instead of painting the Material surface.
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
             onTap: onTap,

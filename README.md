@@ -1,49 +1,72 @@
 # 交大课表（Flutter Android）
 
-一个蓝白风格的上海交通大学研究生课表助手。它通过应用内 WebView 打开学校官方教务系统完成登录，在登录后的页面中读取课表；遇到验证码时由用户手工完成，不绕过校园系统的安全验证。
+上海交通大学研究生课表助手。应用通过内置 WebView 打开学校官方教务系统完成登录并读取课表；如学校要求验证码或其他安全验证，由用户在官方页面手动完成，应用不绕过校园系统的验证机制。
 
-## 1.10 已实现
+## 1.14.16.1 版本功能
 
-- 学号/密码登录入口，密码不落盘。
-- 首页显示今天的课程、下一节课、地点和老师。
-- 自动计算教学周并支持手动切换第 1–18 周，支持单双周和间断周次。
-- 默认完整显示周一至周五，横向滑动可查看周末；课程块显示课程、教师和地点。
-- Canvas 课程目录优先匹配并缓存，公告、大纲和成员在后台分批同步，弱网失败不会清空旧数据。
-- 今天页提供“今日课程 / 公告”双标签，课程详情提供 Canvas 三标签。
-- SQLite 离线缓存以及自动/手动课程关联。
-- 课表每 15/30/60/120 分钟自动检查更新。
-- 上课前 15 分钟的推送消息或闹钟提醒，可选择关闭、推送、闹钟三种模式。
-- 蓝白校园视觉主题和离线可打包的“交”字图标。
-- 设置页可调整学期第一周日期和总周数。
-- 设置页可进入水源社区、传承·交大和选课社区；独立站点凭据只由其官方页面处理。
+### 登录与课表
 
-`tools/share_inspector.py` 是传承·交大的独立脱敏诊断工具，只导出同源 JSON 结构，不导出密码、Cookie、Token 或认证请求头。
+- 使用 jAccount 登录研究生选课系统。可选择“记住本人”；账号密码由 Android 安全存储加密保存，不以明文写入应用偏好设置。退出登录会清理保存的凭据和 WebView 登录数据。
+- 自动读取课程名称、教师、地点、时间和开课周次；支持单双周、间断周次以及手动选择教学周。
+- 首页展示当天课程、正在上的课程或下一节课；周课表默认展示周一至周五，可横向查看周末，并可切换学期内各周。
+- 设置页可调整学期第 1 周周一日期和学期总周数（16–22 周）。
+- SQLite 本地缓存支持离线查看。课表可手动刷新，也可按 15、30、60 或 120 分钟的间隔自动检查更新。
 
-## 本机配置与构建
+### Canvas 与消息
 
-需要 Flutter stable、Android SDK、JDK 17。进入本目录后执行：
+- 优先按 Canvas 课程目录匹配课表课程，也可以在课程详情中手动关联或解除关联。
+- 后台分批同步 Canvas 公告、课程大纲和班级成员；同步失败时保留已缓存内容，课表仍可正常使用。
+- 课程详情提供“公告 / 大纲 / 班级成员”标签，并可跳转到对应 Canvas 课程。
+- 首页的“消息”页汇总 Canvas 通知与课程公告，显示未读数量并支持标记已读。
+
+### 提醒与桌面组件
+
+- 可关闭课程提醒，或选择推送消息、闹钟提醒；提醒时间可设为上课前 5、10、15 或 30 分钟。
+- 提供 Android 桌面课表组件，显示当天日期、教学周和当前/接下来的课程；点选课程可进入应用中的课程详情。组件只接收课表字段，不读取账号密码或 WebView 登录信息。
+
+### 交大服务与个性化
+
+- “常用网站”提供研究生应用管理平台、交大 Canvas、交大地图、水源社区、传承·交大、选课社区、图书馆、交大云盘和交大邮箱入口。
+- 需要登录的独立站点在其官方页面中完成认证；课程地点可直接打开交大地图。
+- 支持跟随系统、浅色和深色模式，并提供经典蓝、交大红、雾青、鼠尾草、灰紫和岩蔷薇配色。
+- 可通过 GitHub Releases 检查应用更新、查看更新说明并下载 APK；自动检查需在构建时配置更新仓库。
+
+## 构建
+
+需要 Flutter stable、Android SDK 和 JDK 17。进入本目录后运行：
 
 ```powershell
-flutter create --platforms=android .
 flutter pub get
 flutter run
 flutter build apk --release
 ```
 
-也可以直接运行项目内的 PowerShell 构建脚本：
+也可以使用项目构建脚本：
 
 ```powershell
 .\scripts\build_apk.ps1
 ```
 
-生成文件通常位于：
+Release APK 通常生成在 `build/app/outputs/flutter-apk/app-release.apk`。脚本会从 `pubspec.yaml` 读取应用版本；若本机缺少 Android Gradle 工程文件，也会先初始化 Android 工程。
 
-```text
-build/app/outputs/flutter-apk/app-release.apk
+自动更新仓库可通过构建参数配置：
+
+```powershell
+flutter build apk --release --dart-define=GITHUB_OWNER=<仓库所有者> --dart-define=GITHUB_REPO=<仓库名>
 ```
 
-如果首次构建提示缺少 Flutter SDK，请先安装 Flutter stable，并确保 `flutter doctor` 中 Android toolchain 通过。Android 工程使用 Flutter 官方 Gradle 插件结构，适配 AndroidX。
+## 诊断工具
+
+`tools/share_inspector.py` 是传承·交大的独立诊断工具。用户在官方浏览器页面完成登录和必要验证后，工具仅导出传承·交大同源 JSON 响应；会移除 URL 查询参数，并对密码、Cookie、Token、会话和授权字段脱敏，不导出认证请求头或表单内容。
+
+安装 Playwright 后可运行：
+
+```powershell
+pip install playwright
+playwright install chromium
+python tools/share_inspector.py --output share-diagnostic.json
+```
 
 ## 说明
 
-课表页面是由学校系统动态渲染的，`lib/pages/portal_sync_page.dart` 中的 DOM 提取脚本针对常见表格结构做了通用解析。如果学校改版后课表字段没有被识别，可在该文件的 `_extractCourses` 中补充字段选择器；无需改变 UI 和提醒逻辑。
+教务系统和 Canvas 页面由学校服务端动态提供。若页面结构调整导致字段无法识别，可检查 `lib/pages/portal_sync_page.dart` 与 `lib/services/portal_extractor.dart` 中的课表提取逻辑。

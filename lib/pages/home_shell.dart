@@ -4,6 +4,7 @@ import '../models/app_theme.dart';
 import '../state/app_controller.dart';
 import '../widgets/session_sync_agent.dart';
 import '../widgets/draggable_unread_badge.dart';
+import '../widgets/app_update_ui.dart';
 import 'home_page.dart';
 import 'settings_page.dart';
 import 'week_page.dart';
@@ -58,6 +59,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _initializeCanvas() async {
+    if (!mounted) return;
     final success = await widget.app.initializeCanvasAfterLogin();
     if (!mounted) return;
     if (!success) _firstCanvasSyncPending = false;
@@ -82,7 +84,11 @@ class _HomeShellState extends State<HomeShell> {
       SettingsPage(key: _settingsPageKey, app: widget.app),
     ];
     return Scaffold(
-      body: Stack(children: [
+      // Background listeners must not determine the visible tab area's size.
+      // UpdateObserver builds a zero-size widget; loose Stack sizing otherwise
+      // collapses every Positioned tab to zero width and height.
+      body: Stack(fit: StackFit.expand, children: [
+        const UpdateObserver(),
         Positioned.fill(child: IndexedStack(index: _index, children: pages)),
         Positioned(
             right: 0, bottom: 0, child: SessionSyncAgent(app: widget.app)),

@@ -30,15 +30,25 @@ class _SessionSyncAgentState extends State<SessionSyncAgent> {
   int _loginAttempts = 0;
   int _ssoAttempts = 0;
   final CanvasSyncAccumulator _accumulator = CanvasSyncAccumulator();
+  bool _webViewReady = false;
 
   @override
   void initState() {
     super.initState();
     _loader = _refresh;
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..addJavaScriptChannel('SyncBridge', onMessageReceived: _message)
-      ..setNavigationDelegate(NavigationDelegate(
+    unawaited(_initializeWebView());
+  }
+
+  Future<void> _initializeWebView() async {
+    try {
+      _controller = WebViewController();
+      _auth = SchoolWebAuthenticator(_controller);
+      await _controller.setJavaScriptMode(JavaScriptMode.unrestricted);
+      if (!mounted) return;
+      await _controller.addJavaScriptChannel('SyncBridge',
+          onMessageReceived: _message);
+      if (!mounted) return;
+      await _controller.setNavigationDelegate(NavigationDelegate(
         onPageFinished: (_) => _ready(),
         onWebResourceError: (error) {
           if (error.isForMainFrame == true) {
@@ -47,13 +57,23 @@ class _SessionSyncAgentState extends State<SessionSyncAgent> {
                 'code=${error.errorCode}');
           }
         },
-      ))
-      ..loadHtmlString('<html><body></body></html>');
-    _auth = SchoolWebAuthenticator(_controller);
-    widget.app.registerLoader(_loader);
+      ));
+      if (!mounted) return;
+      await _controller.loadHtmlString('<html><body></body></html>');
+      if (!mounted) return;
+      setState(() => _webViewReady = true);
+    } catch (error, stack) {
+      debugPrint(
+          '[canvas-sync] background WebView initialization failed: $error\n$stack');
+    } finally {
+      // Failed optional initialization resolves sync as unavailable rather than
+      // throwing into the main page or leaving its loader waiting indefinitely.
+      if (mounted) widget.app.registerLoader(_loader);
+    }
   }
 
   Future<SyncBundle?> _refresh() async {
+    if (!_webViewReady) return null;
     if (_pending != null) return _pending!.future;
     final completer = Completer<SyncBundle?>();
     _pending = completer;
@@ -276,13 +296,15 @@ class _SessionSyncAgentState extends State<SessionSyncAgent> {
   }
 
   @override
-  Widget build(BuildContext context) => IgnorePointer(
-        child: Opacity(
-          opacity: 0,
-          child: SizedBox(
-              width: 1,
-              height: 1,
-              child: WebViewWidget(controller: _controller)),
-        ),
-      );
+  Widget build(BuildContext context) => !_webViewReady
+      ? const SizedBox.shrink()
+      : IgnorePointer(
+          child: Opacity(
+            opacity: 0,
+            child: SizedBox(
+                width: 1,
+                height: 1,
+                child: WebViewWidget(controller: _controller)),
+          ),
+        );
 }

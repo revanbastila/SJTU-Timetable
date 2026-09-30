@@ -5,6 +5,7 @@ import '../models/app_theme.dart';
 import '../services/notification_service.dart';
 import '../services/canvas_extractor.dart';
 import '../state/app_controller.dart';
+import '../widgets/app_update_ui.dart';
 import 'authenticated_web_page.dart';
 import 'login_page.dart';
 
@@ -731,6 +732,8 @@ class SettingsPageState extends State<SettingsPage> {
               ),
             ],
             if (advanced) ...[
+              _SettingCard(
+                  title: '关于', children: const [UpdateSettingsEntry()]),
               const SizedBox(height: 26),
               Center(
                 child: TextButton(
@@ -763,13 +766,7 @@ class SettingsPageState extends State<SettingsPage> {
               Center(
                 child: Column(
                   children: [
-                    Text(
-                      '交大课表  ·  v1.14.16.1',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: const Color(0xFF9AAABC)),
-                    ),
+                    const CurrentAppVersionLabel(),
                     const SizedBox(height: 4),
                     Text(
                       '你们给我搞的这个课表啊，Excited！',

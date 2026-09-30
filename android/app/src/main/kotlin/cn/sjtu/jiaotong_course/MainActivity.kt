@@ -17,6 +17,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private val updateBridge by lazy { AppUpdateBridge(this) }
     private val permissionChannel = "cn.sjtu.jiaotong_course/permissions"
     private val webHistoryChannel = "cn.sjtu.jiaotong_course/web_history"
     private val locationRequestCode = 7103
@@ -126,12 +127,25 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onPause() {
+        updateBridge.onPause()
         CookieManager.getInstance().flush()
         super.onPause()
     }
 
+    override fun onResume() {
+        super.onResume()
+        updateBridge.onResume()
+    }
+
+    override fun onDestroy() {
+        updateBridge.dispose()
+        super.onDestroy()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
+            "cn.sjtu.jiaotong_course/updates").setMethodCallHandler(updateBridge::handle)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             webHistoryChannel
