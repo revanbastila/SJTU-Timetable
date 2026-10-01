@@ -74,6 +74,11 @@ void main() {
   late TestWebViewPlatform platform;
   setUp(() {
     app = AppController(NotificationService())..loggedIn = true;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('cn.sjtu.jiaotong_course/announcements'),
+            (call) async =>
+                call.method == 'configure' ? null : '{"courses":[]}');
     platform = TestWebViewPlatform();
     WebViewPlatform.instance = platform;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

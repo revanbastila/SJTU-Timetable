@@ -48,14 +48,17 @@ class Course {
       periodStarts.lastIndexWhere((start) => start < endMinutes) + 1;
   bool isActiveInWeek(int week) => activeWeeks.contains(week);
 
-  Course copyWith({String? canvasCourseId, bool clearCanvasCourse = false}) =>
+  Course copyWith(
+          {String? canvasCourseId,
+          bool clearCanvasCourse = false,
+          int? weekday}) =>
       Course(
         id: id,
         name: name,
         teacher: teacher,
         location: location,
         time: time,
-        weekday: weekday,
+        weekday: weekday ?? this.weekday,
         startHour: startHour,
         startMinute: startMinute,
         endHour: endHour,

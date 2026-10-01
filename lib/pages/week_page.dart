@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../models/app_theme.dart';
 import '../models/course.dart';
+import '../models/teaching_calendar.dart';
 import '../models/periods.dart';
 import '../models/week_rules.dart';
 import '../state/app_controller.dart';
@@ -22,7 +23,7 @@ class WeekPage extends StatelessWidget {
           final monday = mondayForAcademicWeek(app.termStart, app.selectedWeek);
           final sunday = monday.add(const Duration(days: 6));
           final visible = app
-              .coursesForWeek(app.selectedWeek)
+              .effectiveCoursesForWeek(app.selectedWeek)
               .where((course) => course.hasSchedule)
               .toList();
           return SafeArea(
@@ -136,6 +137,13 @@ class WeekPage extends StatelessWidget {
                 child: LayoutBuilder(
                   builder: (context, constraints) => _Timetable(
                     courses: visible,
+                    dayLabels: [
+                      for (var day = 0; day < 7; day++)
+                        app.teachingCalendar
+                            .ruleFor(DateTime(
+                                monday.year, monday.month, monday.day + day))
+                            ?.label
+                    ],
                     viewportWidth: constraints.maxWidth,
                     colorFor: (course) => Color(app.courseColorValue(course)),
                     onCourseTap: (course) => Navigator.of(context).push(
@@ -153,17 +161,36 @@ class WeekPage extends StatelessWidget {
       );
 }
 
-class _Timetable extends StatelessWidget {
+class _Timetable extends StatefulWidget {
   const _Timetable({
     required this.courses,
+    required this.dayLabels,
     required this.viewportWidth,
     required this.colorFor,
     required this.onCourseTap,
   });
   final List<Course> courses;
+  final List<String?> dayLabels;
   final double viewportWidth;
   final Color Function(Course) colorFor;
   final ValueChanged<Course> onCourseTap;
+
+  @override
+  State<_Timetable> createState() => _TimetableState();
+}
+
+class _TimetableState extends State<_Timetable> {
+  final _horizontalController = ScrollController();
+  List<Course> get courses => widget.courses;
+  double get viewportWidth => widget.viewportWidth;
+  Color Function(Course) get colorFor => widget.colorFor;
+  ValueChanged<Course> get onCourseTap => widget.onCourseTap;
+
+  @override
+  void dispose() {
+    _horizontalController.dispose();
+    super.dispose();
+  }
 
   static const gutter = 46.0;
   static const headerHeight = 42.0;
@@ -177,7 +204,7 @@ class _Timetable extends StatelessWidget {
     // `outlineVariant` is generated from the selected theme in the app theme
     // factory; keep the grid on the same low-saturation accent in both modes.
     final gridLine = scheme.outlineVariant;
-    return SingleChildScrollView(
+    final table = SingleChildScrollView(
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SizedBox(
           width: gutter,
@@ -232,34 +259,14 @@ class _Timetable extends StatelessWidget {
         ),
         Expanded(
           child: SingleChildScrollView(
+            controller: _horizontalController,
             scrollDirection: Axis.horizontal,
             child: SizedBox(
               width: dayWidth * 7,
               child: Column(children: [
                 Row(children: [
                   for (var day = 1; day <= 7; day++)
-                    Container(
-                      width: dayWidth,
-                      height: headerHeight,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: scheme.surfaceContainerLowest,
-                        border: Border(
-                          right: BorderSide(color: gridLine),
-                          bottom: BorderSide(color: gridLine),
-                        ),
-                      ),
-                      child: Text(
-                        WeekPage._days[day - 1],
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: day > 5 && DateTime.now().weekday == day
-                              ? Theme.of(context).colorScheme.primary
-                              : scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
+                    _dayHeader(day, dayWidth, scheme, gridLine),
                 ]),
                 SizedBox(
                   height: gridHeight,
@@ -294,6 +301,109 @@ class _Timetable extends StatelessWidget {
           ),
         ),
       ]),
+    );
+    return Stack(children: [
+      Positioned.fill(child: table),
+      Positioned(
+        bottom: 2,
+        left: 0,
+        right: 0,
+        child: IgnorePointer(
+          child: Semantics(
+            label: '左右滑动查看周六和周日',
+            child: Center(
+              child: AnimatedBuilder(
+                animation: _horizontalController,
+                builder: (context, _) {
+                  final position = _horizontalController.hasClients
+                      ? _horizontalController.position
+                      : null;
+                  final fraction = position != null &&
+                          position.hasContentDimensions &&
+                          position.maxScrollExtent > 0
+                      ? (position.pixels / position.maxScrollExtent)
+                          .clamp(0.0, 1.0)
+                      : 0.0;
+                  return Container(
+                    key: const Key('week-scroll-hint'),
+                    width: 72,
+                    height: 3,
+                    clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(
+                      color: scheme.outlineVariant.withValues(alpha: 0.55),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: Align(
+                      alignment: Alignment(-1 + fraction * 2, 0),
+                      child: Container(
+                        width: 72 * 5 / 7,
+                        color: scheme.primary.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _dayHeader(
+    int day,
+    double dayWidth,
+    ColorScheme scheme,
+    Color gridLine,
+  ) {
+    final label = widget.dayLabels[day - 1];
+    final color = day > 5 && shanghaiNow().weekday == day
+        ? scheme.primary
+        : scheme.onSurfaceVariant;
+    return Container(
+      width: dayWidth,
+      height: headerHeight,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        border: Border(
+          right: BorderSide(color: gridLine),
+          bottom: BorderSide(color: gridLine),
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Align(
+            alignment: Alignment.center,
+            child: Text(
+              WeekPage._days[day - 1],
+              key: ValueKey('week-header-day-$day'),
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+            ),
+          ),
+          if (label != null)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 1,
+              child: Text(
+                label,
+                key: ValueKey('week-header-label-$day'),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 8.5,
+                  height: 1,
+                  color: color,
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 

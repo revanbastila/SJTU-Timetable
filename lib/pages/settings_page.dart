@@ -308,6 +308,35 @@ class SettingsPageState extends State<SettingsPage> {
                 children: [
                   ListTile(
                     contentPadding: EdgeInsets.zero,
+                    leading: const _SettingIcon(icon: Icons.language_outlined),
+                    title: const Text(
+                      'Canvas教学平台',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => AuthenticatedWebPage(
+                            title: 'Canvas教学平台',
+                            // This is the same endpoint used by Canvas' jAccount
+                            // card. Starting here avoids mistaking the adjacent
+                            // external-account form for a jAccount login page.
+                            initialUrl: canvasSsoUrl,
+                            targetHost: 'oc.sjtu.edu.cn',
+                            app: app,
+                            canvasSite: true,
+                            ssoFallbackUrl: canvasSsoUrl,
+                            showCloseButton: true,
+                          ),
+                        ),
+                      );
+                      await app.refreshNow();
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
                     leading: const _SettingIcon(icon: Icons.school_outlined),
                     title: const Text(
                       '研究生应用管理平台',
@@ -330,45 +359,87 @@ class SettingsPageState extends State<SettingsPage> {
                   const Divider(height: 1),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.language_outlined),
-                    title: const Text(
-                      '交大 Canvas',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+                    leading: const _SettingIcon(
+                      icon: Icons.local_library_outlined,
                     ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => AuthenticatedWebPage(
-                            title: '交大 Canvas',
-                            // This is the same endpoint used by Canvas' jAccount
-                            // card. Starting here avoids mistaking the adjacent
-                            // external-account form for a jAccount login page.
-                            initialUrl: canvasSsoUrl,
-                            targetHost: 'oc.sjtu.edu.cn',
-                            app: app,
-                            canvasSite: true,
-                            ssoFallbackUrl: canvasSsoUrl,
-                            showCloseButton: true,
-                          ),
-                        ),
-                      );
-                      await app.refreshNow();
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.map_outlined),
                     title: const Text(
-                      '交大地图',
+                      '图书馆',
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => AuthenticatedWebPage(
-                          title: '交大地图',
+                          title: '图书馆',
+                          initialUrl: sjtuLibraryUrl,
+                          targetHost: 'www.lib.sjtu.edu.cn',
+                          app: app,
+                          allowHttpTarget: true,
+                          librarySite: true,
+                          showCloseButton: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const _SettingIcon(icon: Icons.mail_outline),
+                    title: const Text(
+                      '交大邮箱',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => AuthenticatedWebPage(
+                          title: '交大邮箱',
+                          initialUrl: sjtuMailUrl,
+                          targetHost: 'mail.sjtu.edu.cn',
+                          app: app,
+                          preferSsoLogin: true,
+                          mailSite: true,
+                          allowHttpTarget: true,
+                          showCloseButton: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const _SettingIcon(icon: Icons.cloud_outlined),
+                    title: const Text(
+                      '交大云盘',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => AuthenticatedWebPage(
+                          title: '交大云盘',
+                          initialUrl: sjtuCloudDriveUrl,
+                          targetHost: 'pan.sjtu.edu.cn',
+                          app: app,
+                          preferSsoLogin: true,
+                          showCloseButton: true,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const _SettingIcon(icon: Icons.map_outlined),
+                    title: const Text(
+                      '校园地图',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => AuthenticatedWebPage(
+                          title: '校园地图',
                           initialUrl: sjtuMapUrl,
                           targetHost: 'map.sjtu.edu.cn',
                           app: app,
@@ -404,30 +475,6 @@ class SettingsPageState extends State<SettingsPage> {
                   const Divider(height: 1),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(
-                      icon: Icons.auto_stories_outlined,
-                    ),
-                    title: const Text(
-                      '传承·交大',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '传承·交大',
-                          initialUrl: heritageSjtuUrl,
-                          targetHost: 'share.dyweb.sjtu.cn',
-                          app: app,
-                          preferSsoLogin: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
                     leading: const _SettingIcon(icon: Icons.groups_outlined),
                     title: const Text(
                       '选课社区',
@@ -451,68 +498,21 @@ class SettingsPageState extends State<SettingsPage> {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const _SettingIcon(
-                      icon: Icons.local_library_outlined,
+                      icon: Icons.auto_stories_outlined,
                     ),
                     title: const Text(
-                      '图书馆',
+                      '传承·交大',
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => AuthenticatedWebPage(
-                          title: '图书馆',
-                          initialUrl: sjtuLibraryUrl,
-                          targetHost: 'www.lib.sjtu.edu.cn',
-                          app: app,
-                          allowHttpTarget: true,
-                          librarySite: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.cloud_outlined),
-                    title: const Text(
-                      '交大云盘',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '交大云盘',
-                          initialUrl: sjtuCloudDriveUrl,
-                          targetHost: 'pan.sjtu.edu.cn',
+                          title: '传承·交大',
+                          initialUrl: heritageSjtuUrl,
+                          targetHost: 'share.dyweb.sjtu.cn',
                           app: app,
                           preferSsoLogin: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.mail_outline),
-                    title: const Text(
-                      '交大邮箱',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '交大邮箱',
-                          initialUrl: sjtuMailUrl,
-                          targetHost: 'mail.sjtu.edu.cn',
-                          app: app,
-                          preferSsoLogin: true,
-                          mailSite: true,
-                          allowHttpTarget: true,
                           showCloseButton: true,
                         ),
                       ),
@@ -663,8 +663,14 @@ class SettingsPageState extends State<SettingsPage> {
                       ),
                     ],
                     selected: {app.reminderMode},
-                    onSelectionChanged: (value) =>
-                        app.setReminderMode(value.first),
+                    onSelectionChanged: (value) async {
+                      final warning = await app.setReminderMode(value.first);
+                      if (context.mounted && warning != null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(warning)),
+                        );
+                      }
+                    },
                   ),
                   const SizedBox(height: 10),
                   Text(

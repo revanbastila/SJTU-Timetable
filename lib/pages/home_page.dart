@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../models/app_theme.dart';
 import '../models/course.dart';
+import '../models/teaching_calendar.dart';
 import '../services/message_feed.dart';
 import '../state/app_controller.dart';
 import '../widgets/course_tile.dart';
@@ -63,16 +64,9 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) => AnimatedBuilder(
         animation: app,
         builder: (context, _) {
-          final now = DateTime.now();
+          final now = shanghaiNow();
           final week = app.currentAcademicWeekInTerm;
-          final todayCourses =
-              (week == null ? const <Course>[] : app.coursesForWeek(week))
-                  .where(
-                    (course) =>
-                        course.hasSchedule && course.weekday == now.weekday,
-                  )
-                  .toList()
-                ..sort((a, b) => a.startMinutes.compareTo(b.startMinutes));
+          final todayCourses = app.getEffectiveCoursesForDate(now);
           final featured = featuredCourseAt(todayCourses, now);
           final brightness = Theme.of(context).brightness;
           return ColoredBox(
@@ -279,7 +273,11 @@ class _TodayList extends StatelessWidget {
                 onTap: () => _openCourse(context, featured!),
               )
             else
-              _EmptyState(hasCourses: courses.isNotEmpty),
+              _EmptyState(
+                  hasCourses: courses.isNotEmpty,
+                  message: app.teachingCalendar
+                      .ruleFor(shanghaiNow())
+                      ?.emptyMessage),
             const SizedBox(height: 18),
             for (final course in courses)
               CourseTile(
@@ -449,7 +447,7 @@ class _NextClassState extends State<_NextClass> {
     if (!widget.isInClass || !widget.isActive) return;
     _statusTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (!mounted) return;
-      final now = DateTime.now();
+      final now = shanghaiNow();
       final nowMinutes = now.hour * 60 + now.minute;
       if (nowMinutes >= widget.course.endMinutes) {
         _statusTimer?.cancel();
@@ -570,7 +568,8 @@ class _NextClassState extends State<_NextClass> {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.hasCourses});
+  const _EmptyState({required this.hasCourses, this.message});
+  final String? message;
   final bool hasCourses;
   @override
   Widget build(BuildContext context) {
@@ -594,7 +593,9 @@ class _EmptyState extends StatelessWidget {
             color: Theme.of(context).colorScheme.primary,
           ),
           const SizedBox(width: 12),
-          Expanded(child: Text(hasCourses ? '今天的课程已经结束。' : '本周今天没有课程。')),
+          Expanded(
+              child:
+                  Text(message ?? (hasCourses ? '今天的课程已经结束。' : '本周今天没有课程。'))),
         ],
       ),
     );

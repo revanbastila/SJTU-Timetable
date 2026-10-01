@@ -794,7 +794,7 @@ void main() {
       'https://yjs.sjtu.edu.cn/gsapp/sys/emaphome/portal/index.do',
     );
     expect(find.text('研究生应用管理平台'), findsOneWidget);
-    expect(find.text('交大 Canvas'), findsOneWidget);
+    expect(find.text('Canvas教学平台'), findsOneWidget);
     expect(find.textContaining('学号：'), findsNothing);
     expect(find.text('student'), findsOneWidget);
     expect(find.text('账号：student'), findsNothing);

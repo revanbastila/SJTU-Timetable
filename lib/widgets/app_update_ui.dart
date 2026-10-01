@@ -222,7 +222,8 @@ class _UpdateSettingsEntryState extends State<UpdateSettingsEntry> {
               ListTile(
                   contentPadding: EdgeInsets.zero,
                   leading: const Icon(Icons.info_outline),
-                  title: const Text('当前版本'),
+                  title: const Text('当前版本',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
                   trailing: Text(manager.current?.name ?? '读取中')),
               ListTile(
                   contentPadding: EdgeInsets.zero,
@@ -234,13 +235,17 @@ class _UpdateSettingsEntryState extends State<UpdateSettingsEntry> {
                       : const Icon(Icons.system_update_outlined),
                   title: Text(title,
                       style: const TextStyle(fontWeight: FontWeight.w700)),
-                  subtitle: Text(manager.downloadStatus == 'ready'
-                      ? 'APK 已下载，点击继续安装'
-                      : manager.downloadStatus == 'failed'
-                          ? manager.notice
-                          : manager.available != null
-                              ? '发现新版本 ${manager.available!.displayVersion}'
-                              : '通过 GitHub Releases 获取最新版本'),
+                  subtitle: manager.downloadStatus == 'ready' ||
+                          manager.downloadStatus == 'failed' ||
+                          manager.available != null
+                      ? Text(manager.downloadStatus == 'ready'
+                          ? 'APK 已下载，点击继续安装'
+                          : manager.downloadStatus == 'failed'
+                              ? manager.notice
+                              : manager.available != null
+                                  ? '发现新版本 ${manager.available!.displayVersion}'
+                                  : '')
+                      : null,
                   trailing: const Icon(Icons.chevron_right),
                   onTap: manager.checking || downloading ? null : _check),
               if (downloading)

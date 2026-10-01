@@ -13,6 +13,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONArray
@@ -98,7 +99,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
 
     private fun buildViews(context: Context, widgetId: Int, visibleSlots: Int): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_timetable)
-        val today = Calendar.getInstance()
+        val today = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"))
         val snapshotText = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(SNAPSHOT, null)
         val snapshot = try {
@@ -129,13 +130,20 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             return views
         }
 
+        // These dated courses were calculated by the shared Dart policy.
+        // The old weekday path exists only for snapshots from older APKs.
+        val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("Asia/Shanghai") }.format(today.time)
+        val effectiveDay = snapshot?.optJSONObject("effectiveDays")?.optJSONObject(dateKey)
         val courses = coursesForToday(
-            savedCourses ?: JSONArray(),
+            effectiveDay?.optJSONArray("courses") ?: savedCourses ?: JSONArray(),
             today,
-            week
+            week,
+            effectiveDay != null
         )
+        Log.i("TeachingCalendar", "widget today=$dateKey effective courses=${courses.size} version=${snapshot?.optString("calendarVersion")} precomputed=${effectiveDay != null}")
         if (courses.isEmpty()) {
-            showPlaceholder(views, "今天没有课程")
+            val message = effectiveDay?.optString("emptyMessage", "").orEmpty()
+            showPlaceholder(views, message.takeIf { it.isNotBlank() && it != "null" } ?: "今天没有课程")
             bindScheduleClick(context, views)
             return views
         }
@@ -173,6 +181,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                 formatTime(course.endHour, course.endMinute)
         )
         views.setTextViewText(courseLocationId(suffix), course.location.ifBlank { "地点未记录" })
+        views.setTextViewText(courseTeacherId(suffix), course.teacher)
         views.setTextViewText(courseNameId(suffix), course.name.ifBlank { "课程" })
         views.setImageViewBitmap(courseColorId(suffix), colorDot(course.color))
     }
@@ -180,9 +189,10 @@ class TimetableWidgetProvider : AppWidgetProvider() {
     private fun coursesForToday(
         source: JSONArray,
         today: Calendar,
-        week: Int?
+        week: Int?,
+        precomputed: Boolean = false
     ): List<WidgetCourse> {
-        if (week == null) return emptyList()
+        if (!precomputed && week == null) return emptyList()
         val targetWeekday = when (today.get(Calendar.DAY_OF_WEEK)) {
             Calendar.SUNDAY -> 7
             else -> today.get(Calendar.DAY_OF_WEEK) - 1
@@ -191,8 +201,8 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         for (index in 0 until source.length()) {
             val item = source.optJSONObject(index) ?: continue
             val day = item.optInt("weekday", -1)
-            if (day != targetWeekday) continue
-            if (!item.optJSONArray("activeWeeks").includes(week)) continue
+            if (!precomputed && day != targetWeekday) continue
+            if (!precomputed && !item.optJSONArray("activeWeeks").includes(week ?: 0)) continue
             val startHour = item.optInt("startHour", -1)
             val startMinute = item.optInt("startMinute", 0)
             val endHour = item.optInt("endHour", -1)
@@ -206,6 +216,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                     id = id,
                     name = item.optString("name", ""),
                     location = item.optString("location", ""),
+                    teacher = item.optString("teacher", ""),
                     startHour = startHour,
                     startMinute = startMinute,
                     endHour = endHour,
@@ -243,7 +254,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
 
     private fun placeholderViews(context: Context): RemoteViews {
         val views = RemoteViews(context.packageName, R.layout.widget_timetable)
-        val now = Calendar.getInstance()
+        val now = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai"))
         views.setTextViewText(R.id.widget_date, now.get(Calendar.DAY_OF_MONTH).toString())
         views.setTextViewText(R.id.widget_meta, "交大课表\n${weekdayLabel(now.get(Calendar.DAY_OF_WEEK))}")
         showPlaceholder(views, "打开应用导入课表")
@@ -293,7 +304,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
 
     private fun scheduleMidnightRefresh(context: Context) {
         try {
-            val next = Calendar.getInstance().apply {
+            val next = Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai")).apply {
                 add(Calendar.DAY_OF_YEAR, 1)
                 set(Calendar.HOUR_OF_DAY, 0)
                 set(Calendar.MINUTE, 2)
@@ -339,9 +350,9 @@ class TimetableWidgetProvider : AppWidgetProvider() {
     }
 
     private fun parseDate(value: String): Calendar? = try {
-        val date = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply { isLenient = false }.parse(value)
+        val date = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply { isLenient = false; timeZone = TimeZone.getTimeZone("Asia/Shanghai") }.parse(value)
             ?: return null
-        Calendar.getInstance().apply { time = date }
+        Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai")).apply { time = date }
     } catch (_: Throwable) {
         null
     }
@@ -402,6 +413,11 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         2 -> R.id.widget_name_2
         else -> R.id.widget_name_3
     }
+    private fun courseTeacherId(index: Int) = when (index) {
+        1 -> R.id.widget_teacher_1
+        2 -> R.id.widget_teacher_2
+        else -> R.id.widget_teacher_3
+    }
     private fun courseColorId(index: Int) = when (index) {
         1 -> R.id.widget_color_1
         2 -> R.id.widget_color_2
@@ -412,6 +428,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         val id: String,
         val name: String,
         val location: String,
+        val teacher: String,
         val startHour: Int,
         val startMinute: Int,
         val endHour: Int,

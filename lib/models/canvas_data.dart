@@ -228,6 +228,20 @@ class CanvasCourseData {
         },
       };
 
+  CanvasCourseData withAnnouncements(List<CanvasItem> items) =>
+      CanvasCourseData(
+        id: id,
+        name: name,
+        courseCode: courseCode,
+        sisCourseId: sisCourseId,
+        integrationId: integrationId,
+        syllabusHtml: syllabusHtml,
+        syllabusError: syllabusError,
+        people: people,
+        peopleError: peopleError,
+        announcements: items,
+      );
+
   CanvasCourseData mergeDetails(CanvasCourseData previous) => CanvasCourseData(
         id: id,
         name: name,

@@ -5,6 +5,7 @@ import '../state/app_controller.dart';
 import '../widgets/session_sync_agent.dart';
 import '../widgets/draggable_unread_badge.dart';
 import '../widgets/app_update_ui.dart';
+import '../widgets/canvas_announcement_observer.dart';
 import 'home_page.dart';
 import 'settings_page.dart';
 import 'week_page.dart';
@@ -89,6 +90,7 @@ class _HomeShellState extends State<HomeShell> {
       // collapses every Positioned tab to zero width and height.
       body: Stack(fit: StackFit.expand, children: [
         const UpdateObserver(),
+        CanvasAnnouncementObserver(app: widget.app),
         Positioned.fill(child: IndexedStack(index: _index, children: pages)),
         Positioned(
             right: 0, bottom: 0, child: SessionSyncAgent(app: widget.app)),

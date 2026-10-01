@@ -29,6 +29,8 @@ class MemoryCredentialStore implements CredentialStore {
 
 class SilentNotifications extends NotificationService {
   @override
+  Future<bool> requestPermissions(ReminderMode mode) async => true;
+  @override
   Future<void> initialize() async {}
   @override
   Future<NotificationSyncReport> sync(List<Course> courses, ReminderMode mode,

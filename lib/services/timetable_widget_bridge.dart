@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../state/app_controller.dart';
+import '../models/course.dart';
+import '../models/teaching_calendar.dart';
 
 /// Sends a privacy-minimal timetable snapshot to the native Android widget.
 /// The snapshot contains timetable fields only; credentials and web sessions
@@ -48,25 +50,49 @@ class TimetableWidgetBridge {
     final app = _app;
     if (app == null) return;
     final termStart = app.termStart;
+    Map<String, Object?> serialize(Course course) => <String, Object?>{
+          'id': course.id,
+          'name': course.name,
+          'location': course.location,
+          'teacher': course.teacher,
+          'weekday': course.weekday,
+          'activeWeeks': course.activeWeeks,
+          'startHour': course.startHour,
+          'startMinute': course.startMinute,
+          'endHour': course.endHour,
+          'endMinute': course.endMinute,
+          'widgetColor': app.courseColorValue(course),
+        };
     final courses = app.courses
         .where((course) => course.hasSchedule)
-        .map(
-          (course) => <String, Object?>{
-            'id': course.id,
-            'name': course.name,
-            'location': course.location,
-            'weekday': course.weekday,
-            'activeWeeks': course.activeWeeks,
-            'startHour': course.startHour,
-            'startMinute': course.startMinute,
-            'endHour': course.endHour,
-            'endMinute': course.endMinute,
-            'widgetColor': app.courseColorValue(course),
-          },
-        )
+        .map(serialize)
         .toList(growable: false);
+    final dates = <String, DateTime>{
+      for (var offset = 0; offset < app.totalWeeks * 7; offset++)
+        calendarDateKey(DateTime(
+                termStart.year, termStart.month, termStart.day + offset)):
+            DateTime(termStart.year, termStart.month, termStart.day + offset),
+      for (final rule in app.teachingCalendar.rules.values)
+        calendarDateKey(rule.date): rule.date,
+    };
+    // Store dated results for the complete term, so native midnight/boot
+    // updates do not need Flutter or a second holiday interpreter.
+    final effectiveDays = <String, Object?>{
+      for (final entry in dates.entries)
+        entry.key: {
+          'courses': app
+              .getEffectiveCoursesForDate(entry.value)
+              .map(serialize)
+              .toList(),
+          'emptyMessage':
+              app.teachingCalendar.ruleFor(entry.value)?.emptyMessage,
+        },
+    };
     final snapshot = jsonEncode(<String, Object?>{
-      'schema': 1,
+      'schema': 2,
+      'calendarVersion': app.teachingCalendar.version,
+      'calendarDigest': app.teachingCalendar.fingerprint,
+      'effectiveDays': effectiveDays,
       'hasTimetable': courses.isNotEmpty,
       'termStart':
           '${termStart.year.toString().padLeft(4, '0')}-${termStart.month.toString().padLeft(2, '0')}-${termStart.day.toString().padLeft(2, '0')}',
@@ -75,6 +101,10 @@ class TimetableWidgetBridge {
       'courses': courses,
     });
     if (snapshot == _lastSnapshot || snapshot == _pendingSnapshot) return;
+    final today = calendarDateKey(shanghaiNow());
+    debugPrint('[calendar] widget snapshot: today=$today '
+        'effective courses=${app.getEffectiveCoursesForDate(shanghaiNow()).length} '
+        'version=${app.teachingCalendar.version}');
     _pendingSnapshot = snapshot;
     if (!_syncing) await _drainSnapshots();
   }

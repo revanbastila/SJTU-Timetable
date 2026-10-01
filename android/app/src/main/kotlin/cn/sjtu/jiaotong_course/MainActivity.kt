@@ -144,6 +144,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        CanvasAnnouncementSync.bind(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
             "cn.sjtu.jiaotong_course/updates").setMethodCallHandler(updateBridge::handle)
         MethodChannel(

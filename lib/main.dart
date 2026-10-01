@@ -23,6 +23,7 @@ Future<void> main() async {
   widgetBridge.attach(app);
   runApp(JiaotongCourseApp(app: app));
   WidgetsBinding.instance.addPostFrameCallback((_) {
+    app.startTeachingCalendarSync();
     unawaited(widgetBridge.consumePendingCourse());
   });
 }

@@ -14,6 +14,9 @@ import '../services/course_matcher.dart';
 import '../services/message_feed.dart';
 import '../services/credential_store.dart';
 import '../services/notification_service.dart';
+import '../services/canvas_announcement_sync.dart';
+import '../models/teaching_calendar.dart';
+import '../services/teaching_calendar_repository.dart';
 
 class SyncBundle {
   const SyncBundle(this.courses, this.canvas);
@@ -38,10 +41,20 @@ class AppController extends ChangeNotifier {
     this.notifications, {
     AppDatabase? database,
     CredentialStore? credentialStore,
+    TeachingCalendarRepository? calendarRepository,
   })  : database = database ?? AppDatabase(),
+        calendarRepository = calendarRepository ?? TeachingCalendarRepository(),
         credentialStore = credentialStore ?? SecureCredentialStore();
 
   final NotificationService notifications;
+  final TeachingCalendarRepository calendarRepository;
+  TeachingCalendar teachingCalendar = const TeachingCalendar.empty();
+  Timer? _calendarRefreshTimer;
+  Timer? _calendarDayTimer;
+  Timer? _calendarRetryTimer;
+  int _calendarRetries = 0;
+  bool _calendarSyncStarted = false;
+  bool _disposed = false;
   final AppDatabase database;
   final CredentialStore credentialStore;
   List<Course> courses = Course.demo();
@@ -250,13 +263,87 @@ class AppController extends ChangeNotifier {
   ];
 
   int get currentAcademicWeek =>
-      academicWeekFor(DateTime.now(), termStart, totalWeeks);
+      academicWeekFor(shanghaiNow(), termStart, totalWeeks);
   int? get currentAcademicWeekInTerm =>
-      academicWeekInTerm(DateTime.now(), termStart, totalWeeks);
+      academicWeekInTerm(shanghaiNow(), termStart, totalWeeks);
   String get currentTermStatus =>
-      DateTime.now().isBefore(termStart) ? '学期未开始' : '学期已结束';
+      calendarCivilDate(shanghaiNow()).isBefore(termStart) ? '学期未开始' : '学期已结束';
   List<Course> coursesForWeek(int week) =>
       courses.where((course) => course.isActiveInWeek(week)).toList();
+  List<Course> getEffectiveCoursesForDate(DateTime date) => teachingCalendar
+      .getEffectiveCoursesForDate(date, courses, termStart, totalWeeks);
+  List<Course> effectiveCoursesForWeek(int week) {
+    final monday = mondayForAcademicWeek(termStart, week);
+    return [
+      for (var offset = 0; offset < 7; offset++)
+        ...getEffectiveCoursesForDate(
+                DateTime(monday.year, monday.month, monday.day + offset))
+            .map((course) => course.copyWith(weekday: offset + 1))
+    ];
+  }
+
+  void startTeachingCalendarSync() {
+    if (_calendarSyncStarted || _disposed) return;
+    _calendarSyncStarted = true;
+    _logCalendarState('startup cache');
+    unawaited(refreshTeachingCalendar());
+    _calendarRefreshTimer = Timer.periodic(const Duration(minutes: 30),
+        (_) => unawaited(refreshTeachingCalendar()));
+    _scheduleCalendarMidnight();
+  }
+
+  void _scheduleCalendarMidnight() {
+    _calendarDayTimer?.cancel();
+    final now = shanghaiNow();
+    final next = nextShanghaiMidnight(now);
+    _calendarDayTimer = Timer(next.difference(now), () {
+      if (_disposed) return;
+      notifyListeners();
+      _scheduleCalendarMidnight();
+    });
+  }
+
+  Future<void> refreshTeachingCalendar() async {
+    final updated = await calendarRepository.refresh(teachingCalendar);
+    if (_disposed) return;
+    if (!calendarRepository.lastRefreshSucceeded && _calendarRetries < 3) {
+      final delay = const [
+        Duration(seconds: 15),
+        Duration(minutes: 1),
+        Duration(minutes: 5)
+      ][_calendarRetries++];
+      _calendarRetryTimer?.cancel();
+      _calendarRetryTimer =
+          Timer(delay, () => unawaited(refreshTeachingCalendar()));
+      debugPrint('[calendar] retry scheduled in ${delay.inSeconds}s');
+    } else if (calendarRepository.lastRefreshSucceeded) {
+      _calendarRetries = 0;
+      _calendarRetryTimer?.cancel();
+    }
+    if (updated == null ||
+        _disposed ||
+        updated.fingerprint == teachingCalendar.fingerprint) {
+      _logCalendarState('refresh unchanged/failed');
+      return;
+    }
+    teachingCalendar = updated;
+    notifications.calendar = updated;
+    _logCalendarState('memory updated');
+    // The widget listener publishes the same dated calculations as the UI.
+    notifyListeners();
+    await restoreReminders();
+  }
+
+  void _logCalendarState(String stage) {
+    final today = shanghaiNow();
+    debugPrint(
+        '[calendar] $stage version=${teachingCalendar.version} updated_at=${teachingCalendar.updatedAt} rules loaded=${teachingCalendar.rules.length}');
+    debugPrint(
+        '[calendar] today: ${calendarDateKey(today)} timezone=Asia/Shanghai '
+        'matched rule: ${teachingCalendar.ruleFor(today)?.type ?? "none"} '
+        'effective courses: ${getEffectiveCoursesForDate(today).length} raw courses: ${courses.length}');
+  }
+
   CanvasCourseData? canvasCourseFor(Course course) =>
       canvas.courseById(course.canvasCourseId);
 
@@ -307,6 +394,8 @@ class AppController extends ChangeNotifier {
     }
     final prefs = await SharedPreferences.getInstance();
     username = prefs.getString('username') ?? '';
+    teachingCalendar = calendarRepository.readCache(prefs);
+    notifications.calendar = teachingCalendar;
     if (prefs.getString('studentProfileSource_$username') ==
         _verifiedProfileSource) {
       studentNumber = prefs.getString('studentNumber_$username') ?? '';
@@ -316,6 +405,7 @@ class AppController extends ChangeNotifier {
     _readMessageIds = prefs.getStringList(_readMessagesKey)?.toSet() ?? {};
     rememberMe = prefs.getBool('rememberMe') ?? false;
     loggedIn = rememberMe && username.isNotEmpty;
+    if (!loggedIn) unawaited(CanvasAnnouncementSync.disable());
     if (rememberMe) {
       try {
         final credentials = await credentialStore.read();
@@ -603,6 +693,21 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> applyAnnouncementUpdates(
+      Map<String, dynamic> data, int generation) async {
+    if (generation != _sessionGeneration || !loggedIn) return;
+    final updated = CanvasAnnouncementSync.merge(canvas, data);
+    if (identical(updated, canvas)) return;
+    canvas = updated;
+    notifyListeners();
+    try {
+      await _persist();
+    } catch (error) {
+      debugPrint(
+          '[canvas-announcements] cache save failed: ${error.runtimeType}');
+    }
+  }
+
   Future<void> refreshNow() {
     if (!loggedIn || _loader == null) return Future<void>.value();
     final active = _activeRefresh;
@@ -694,7 +799,7 @@ class AppController extends ChangeNotifier {
   }
 
   void selectWeekForToday({DateTime? now}) {
-    final value = academicWeekFor(now ?? DateTime.now(), termStart, totalWeeks);
+    final value = academicWeekFor(now ?? shanghaiNow(), termStart, totalWeeks);
     if (selectedWeek == value) return;
     selectedWeek = value;
     notifyListeners();
@@ -752,18 +857,32 @@ class AppController extends ChangeNotifier {
     await prefs.setString('interfaceMode', value.storageKey);
   }
 
-  Future<void> setReminderMode(ReminderMode mode) async {
+  Future<String?> setReminderMode(ReminderMode mode) async {
+    if (mode != ReminderMode.off) {
+      try {
+        await notifications.requestPermissions(mode);
+      } catch (_) {
+        return '请在系统设置中允许交大课表发送通知后重试';
+      }
+    }
     _termReminderTimer?.cancel();
     reminderMode = mode;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('reminderMode', mode.index);
-    await _syncNotificationsSafely(
+    final warning = await _syncNotificationsSafely(
       courses,
       reminderMode,
       termStart: termStart,
       totalWeeks: totalWeeks,
     );
     notifyListeners();
+    return warning;
+  }
+
+  Future<void> restoreReminders() async {
+    if (!loggedIn || reminderMode == ReminderMode.off) return;
+    await _syncNotificationsSafely(courses, reminderMode,
+        termStart: termStart, totalWeeks: totalWeeks);
   }
 
   Future<void> setReminderMinutes(int value) async {
@@ -790,6 +909,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> logout() {
+    unawaited(CanvasAnnouncementSync.disable());
     final signedOutUsername = username;
     _sessionGeneration++;
     _timer?.cancel();
@@ -914,6 +1034,7 @@ class AppController extends ChangeNotifier {
     required int totalWeeks,
   }) async {
     try {
+      notifications.calendar = teachingCalendar;
       final report = await notifications.sync(
         values,
         mode,
@@ -925,7 +1046,7 @@ class AppController extends ChangeNotifier {
         debugPrint(
           'Notification refresh warnings: ${report.failures.join('; ')}',
         );
-        return '课程提醒更新失败';
+        return report.failures.join('；');
       }
     } catch (error, stack) {
       debugPrint('Notification refresh failed: $error\n$stack');
@@ -974,6 +1095,10 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _calendarRefreshTimer?.cancel();
+    _calendarDayTimer?.cancel();
+    _calendarRetryTimer?.cancel();
     _timer?.cancel();
     _termReminderTimer?.cancel();
     super.dispose();
