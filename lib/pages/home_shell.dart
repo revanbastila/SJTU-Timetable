@@ -4,7 +4,6 @@ import '../models/app_theme.dart';
 import '../state/app_controller.dart';
 import '../widgets/session_sync_agent.dart';
 import '../widgets/draggable_unread_badge.dart';
-import '../widgets/app_update_ui.dart';
 import '../widgets/canvas_announcement_observer.dart';
 import 'home_page.dart';
 import 'settings_page.dart';
@@ -86,10 +85,9 @@ class _HomeShellState extends State<HomeShell> {
     ];
     return Scaffold(
       // Background listeners must not determine the visible tab area's size.
-      // UpdateObserver builds a zero-size widget; loose Stack sizing otherwise
+      // Background observers build zero-size widgets; loose sizing otherwise
       // collapses every Positioned tab to zero width and height.
       body: Stack(fit: StackFit.expand, children: [
-        const UpdateObserver(),
         CanvasAnnouncementObserver(app: widget.app),
         Positioned.fill(child: IndexedStack(index: _index, children: pages)),
         Positioned(

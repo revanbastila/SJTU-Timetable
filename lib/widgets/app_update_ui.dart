@@ -20,7 +20,8 @@ Future<void> showUpdateDialog(
           final date = info.publishedAt?.toLocal();
           final notes = readableReleaseNotes(info.releaseNotes);
           return AlertDialog(
-            title: Text('发现新版本 ${info.displayVersion}'),
+            title: Text(
+                '发现新版本：${info.version.replaceFirst(RegExp(r"^[vV]"), "")}'),
             content: SizedBox(
                 width: 360,
                 child: ConstrainedBox(
@@ -34,7 +35,8 @@ Future<void> showUpdateDialog(
                         const SizedBox(height: 16),
                         const Text('更新内容：'),
                         const SizedBox(height: 8),
-                        Text(notes.isEmpty ? '此次发布未提供更新说明' : notes),
+                        Text(notes.isEmpty ? '此次发布未提供更新说明' : notes,
+                            style: Theme.of(dialogContext).textTheme.bodySmall),
                         const SizedBox(height: 16),
                         if (info.hasApk)
                           Text(
@@ -52,18 +54,24 @@ Future<void> showUpdateDialog(
             actions: [
               TextButton(
                   onPressed: () => Navigator.pop(dialogContext, false),
-                  child: const Text('以后再说')),
+                  child: const Text('稍后再说')),
               FilledButton(
-                  onPressed: info.hasApk && !manager.downloading
+                  onPressed: !manager.downloading
                       ? () => Navigator.pop(dialogContext, true)
                       : null,
                   child: const Text('立即更新')),
             ],
           );
         });
-    if (update == true) {
+    if (update == false) {
+      await manager.deferUpdate();
+    } else if (update == true) {
       try {
-        await manager.download(info);
+        if (info.hasApk) {
+          await manager.download(info);
+        } else {
+          await manager.openRelease(info);
+        }
       } catch (error) {
         if (context.mounted) {
           ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(
@@ -98,13 +106,15 @@ Future<void> showInstallPermissionDialog(
 }
 
 class UpdateObserver extends StatefulWidget {
-  const UpdateObserver({super.key});
+  const UpdateObserver({super.key, this.navigatorKey, this.manager});
+  final GlobalKey<NavigatorState>? navigatorKey;
+  final UpdateManager? manager;
   @override
   State<UpdateObserver> createState() => _UpdateObserverState();
 }
 
 class _UpdateObserverState extends State<UpdateObserver> {
-  final manager = UpdateManager.instance;
+  late final manager = widget.manager ?? UpdateManager.instance;
   int _noticeSerial = 0;
   bool _scheduled = false;
   @override
@@ -127,9 +137,15 @@ class _UpdateObserverState extends State<UpdateObserver> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       _scheduled = false;
       if (!mounted) return;
+      // The root observer sits above Navigator. Use its overlay's context so
+      // prompts also work on the login screen and survive route changes.
+      final displayContext = widget.navigatorKey == null
+          ? context
+          : widget.navigatorKey!.currentState?.overlay?.context;
+      if (displayContext == null || !displayContext.mounted) return;
       if (manager.noticeSerial != _noticeSerial) {
         _noticeSerial = manager.noticeSerial;
-        ScaffoldMessenger.maybeOf(context)
+        ScaffoldMessenger.maybeOf(displayContext)
             ?.showSnackBar(SnackBar(content: Text(manager.notice)));
       }
       if (WidgetsBinding.instance.lifecycleState != null &&
@@ -139,7 +155,7 @@ class _UpdateObserverState extends State<UpdateObserver> {
       if (manager.permissionNeeded &&
           !manager.permissionPromptShown &&
           !manager.dialogVisible) {
-        await showInstallPermissionDialog(context, manager);
+        await showInstallPermissionDialog(displayContext, manager);
       } else if (manager.automaticPromptPending &&
           !manager.automaticPromptShown &&
           !manager.dialogVisible) {
@@ -147,7 +163,7 @@ class _UpdateObserverState extends State<UpdateObserver> {
         if (info == null) return;
         manager.automaticPromptShown = true;
         manager.automaticPromptPending = false;
-        await showUpdateDialog(context, manager, info);
+        await showUpdateDialog(displayContext, manager, info);
       }
     });
     WidgetsBinding.instance.scheduleFrame();

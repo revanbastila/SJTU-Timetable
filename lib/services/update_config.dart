@@ -10,7 +10,6 @@ class UpdateConfig {
     'GITHUB_REPO',
     defaultValue: 'SJTU-Timetable',
   );
-  static const automaticCheckInterval = Duration(hours: 24);
 
   static bool get configured => validRepository(githubOwner, githubRepo);
 

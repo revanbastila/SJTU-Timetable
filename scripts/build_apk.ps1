@@ -25,10 +25,13 @@ try {
         throw '无法从 pubspec.yaml 读取应用版本号。'
     }
     $versionMatch = $versionLine.Matches[0]
-    $buildName = if ([string]::IsNullOrWhiteSpace($AndroidBuildName)) {
-        $versionMatch.Groups[1].Value
-    } else {
+    $androidVersionFile = Join-Path $projectRoot 'android\version-name.txt'
+    $buildName = if (-not [string]::IsNullOrWhiteSpace($AndroidBuildName)) {
         $AndroidBuildName.Trim()
+    } elseif (Test-Path -LiteralPath $androidVersionFile) {
+        (Get-Content -LiteralPath $androidVersionFile -Raw).Trim()
+    } else {
+        $versionMatch.Groups[1].Value
     }
     $buildNumber = $versionMatch.Groups[2].Value
 

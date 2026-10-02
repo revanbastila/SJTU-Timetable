@@ -11,6 +11,7 @@ import 'pages/course_detail_page.dart';
 import 'services/notification_service.dart';
 import 'services/timetable_widget_bridge.dart';
 import 'state/app_controller.dart';
+import 'widgets/app_update_ui.dart';
 
 final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
@@ -77,7 +78,10 @@ class JiaotongCourseApp extends StatelessWidget {
                       followsDark ? Brightness.light : Brightness.dark,
                   systemNavigationBarDividerColor: scheme.outlineVariant,
                 ),
-                child: child ?? const SizedBox.shrink(),
+                child: Stack(fit: StackFit.expand, children: [
+                  Positioned.fill(child: child ?? const SizedBox.shrink()),
+                  UpdateObserver(navigatorKey: _navigatorKey),
+                ]),
               );
             },
           ),

@@ -30,6 +30,8 @@ class UpdateManager extends ChangeNotifier with WidgetsBindingObserver {
   final UpdatePlatform platform;
   final bool configured;
   final DateTime Function() clock;
+  static const _deferredAtKey = 'updatePromptDeferredAt';
+  static const _deferInterval = Duration(hours: 24);
   AppVersion? current;
   UpdateInfo? available;
   bool checking = false;
@@ -67,19 +69,8 @@ class UpdateManager extends ChangeNotifier with WidgetsBindingObserver {
       if (_automaticAttempted) return null;
       _automaticAttempted = true;
       if (!configured) return null;
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final last = prefs.getInt('lastUpdateCheckTime');
-        if (last != null &&
-            clock().difference(DateTime.fromMillisecondsSinceEpoch(last)) <
-                UpdateConfig.automaticCheckInterval) {
-          return null;
-        }
-        await prefs.setInt(
-            'lastUpdateCheckTime', clock().millisecondsSinceEpoch);
-      } catch (_) {
-        return null;
-      }
+      // Process-local guard: every cold start checks again. Only the prompt
+      // is muted for 24 hours after the user chooses to defer.
     }
     final active = _activeCheck;
     if (active != null) return active;
@@ -105,7 +96,10 @@ class UpdateManager extends ChangeNotifier with WidgetsBindingObserver {
       if (latest == null) throw const UpdateException('无法识别最新版本号');
       final isNew = latest.compareTo(installed) > 0;
       available = isNew ? info : null;
-      if (automatic && isNew && !automaticPromptShown) {
+      if (automatic &&
+          isNew &&
+          !automaticPromptShown &&
+          await _automaticPromptAllowed()) {
         automaticPromptPending = true;
       }
       return UpdateCheckResult(info, isNew);
@@ -116,6 +110,29 @@ class UpdateManager extends ChangeNotifier with WidgetsBindingObserver {
       checking = false;
       notifyListeners();
     }
+  }
+
+  Future<bool> _automaticPromptAllowed() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final deferredAt = prefs.getInt(_deferredAtKey);
+      return deferredAt == null ||
+          clock().difference(DateTime.fromMillisecondsSinceEpoch(deferredAt)) >=
+              _deferInterval;
+    } catch (_) {
+      // A preference failure must never interrupt startup or surface an error.
+      return false;
+    }
+  }
+
+  Future<void> deferUpdate() async {
+    automaticPromptShown = true;
+    automaticPromptPending = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_deferredAtKey, clock().millisecondsSinceEpoch);
+    } catch (_) {/* Keep the current process muted even if saving fails. */}
+    notifyListeners();
   }
 
   Future<void> download(UpdateInfo info) async {

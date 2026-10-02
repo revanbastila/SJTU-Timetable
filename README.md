@@ -2,7 +2,7 @@
 
 上海交通大学研究生课表助手。应用通过内置 WebView 打开学校官方教务系统完成登录并读取课表；如学校要求验证码或其他安全验证，由用户在官方页面手动完成，应用不绕过校园系统的验证机制。
 
-## 1.14.21 版本功能
+## 1.14.21.1 版本功能
 
 ### 登录与课表
 
@@ -31,7 +31,7 @@
 - “常用网站”按顺序提供 Canvas教学平台、研究生应用管理平台、图书馆、交大邮箱、交大云盘、校园地图、水源社区、选课社区和传承·交大。
 - 需要登录的独立站点在其官方页面中完成认证；课程地点可直接打开交大地图。
 - 支持跟随系统、浅色和深色模式，并提供经典蓝、交大红、雾青、鼠尾草、灰紫和岩蔷薇配色。
-- 可通过 GitHub Releases 检查应用更新、查看更新说明并下载 APK；默认更新仓库为 `revanbastila/SJTU-Timetable`。
+- 每次冷启动在后台通过 GitHub Releases 检查应用更新，读取发布说明并复用安全下载/安装流程；默认更新仓库为 `revanbastila/SJTU-Timetable`。选择“稍后再说”后 24 小时内不再自动提示，手动检查不受限制。
 - 周课表的特殊日期标识与横向滑动提示适配当前主题，不改变课程布局。
 
 ## 构建
@@ -50,7 +50,7 @@ flutter build apk --release
 .\scripts\build_apk.ps1
 ```
 
-应用版本名和递增的 Android `versionCode` 在 `pubspec.yaml` 的 `version` 字段维护。正式 APK 使用固定 Release 签名；签名密钥及本地 `android/key.properties` 不进入仓库。
+Android 版本名在 `android/version-name.txt` 维护（支持四段热修复版本）；递增的 `versionCode` 在 `pubspec.yaml` 的 `version` 字段加号后维护，该字段版本部分遵循 Dart 三段语义版本。正式 APK 使用固定 Release 签名；签名密钥及本地 `android/key.properties` 不进入仓库。
 
 Release APK 通常生成在 `build/app/outputs/flutter-apk/app-release.apk`。脚本会从 `pubspec.yaml` 读取应用版本；若本机缺少 Android Gradle 工程文件，也会先初始化 Android 工程。
 

@@ -37,7 +37,7 @@ class Repository implements ReleaseRepository {
 }
 
 class Platform implements UpdatePlatform {
-  int downloads = 0, installs = 0, settings = 0;
+  int downloads = 0, installs = 0, settings = 0, releasePages = 0;
   String installResult = 'opened';
   bool failInstall = false;
   Map<String, dynamic> value = {'status': 'idle'};
@@ -70,7 +70,9 @@ class Platform implements UpdatePlatform {
   }
 
   @override
-  Future<void> openRelease(String url) async {}
+  Future<void> openRelease(String url) async {
+    releasePages++;
+  }
 }
 
 void main() {
@@ -83,10 +85,7 @@ void main() {
     repository = Repository();
     platform = Platform();
     manager = UpdateManager(
-        repository: repository,
-        platform: platform,
-        configured: true,
-        clock: () => DateTime.utc(2026, 9, 30));
+        repository: repository, platform: platform, configured: true);
   });
   tearDown(() => manager.dispose());
 
@@ -95,7 +94,9 @@ void main() {
       ('1.10', '1.9'),
       ('v1.10.1', '1.10'),
       ('2.0', '1.99'),
-      ('1.14.17', '1.14.16.1')
+      ('1.14.17', '1.14.16.1'),
+      ('1.14.21.1', '1.14.21'),
+      ('1.14.22', '1.14.21.1')
     ]) {
       expect(
           ReleaseVersion.parse(pair.$1)!
@@ -154,21 +155,24 @@ void main() {
     expect(manager.noticeSerial, 0);
   });
   test(
-      'automatic check once per run and persisted 24-hour limit; manual bypass',
+      'every cold start checks; obsolete check timestamp does not throttle; once per run',
       () async {
+    SharedPreferences.setMockInitialValues({
+      'lastUpdateCheckTime': DateTime.now().millisecondsSinceEpoch,
+    });
     expect((await manager.check(automatic: true))!.isNew, true);
     expect(manager.automaticPromptPending, true);
+    manager.automaticPromptShown = true;
+    manager.automaticPromptPending = false;
     expect(await manager.check(automatic: true), isNull);
     final second = UpdateManager(
-        repository: repository,
-        platform: platform,
-        configured: true,
-        clock: () => DateTime.utc(2026, 9, 30, 1));
+        repository: repository, platform: platform, configured: true);
     try {
-      expect(await second.check(automatic: true), isNull);
-      expect(repository.calls, 1);
-      await second.check();
+      expect((await second.check(automatic: true))!.isNew, true);
+      expect(second.automaticPromptPending, true);
       expect(repository.calls, 2);
+      await second.check();
+      expect(repository.calls, 3);
     } finally {
       second.dispose();
     }
@@ -182,6 +186,107 @@ void main() {
     expect(repository.calls, 1);
     gate.complete(release());
     await Future.wait([first, second]);
+  });
+  test(
+      'defer mutes automatic prompts for 24 hours across cold starts, not manual checks',
+      () async {
+    final start = DateTime.utc(2026, 10, 2);
+    final first = UpdateManager(
+        repository: repository,
+        platform: platform,
+        configured: true,
+        clock: () => start);
+    await first.check(automatic: true);
+    await first.deferUpdate();
+    first.dispose();
+    for (final hours in [1, 23, 24]) {
+      final coldStart = UpdateManager(
+          repository: repository,
+          platform: platform,
+          configured: true,
+          clock: () => start.add(Duration(hours: hours)));
+      try {
+        expect((await coldStart.check(automatic: true))!.isNew, true);
+        expect(coldStart.automaticPromptPending, hours >= 24);
+        expect((await coldStart.check())!.isNew, true);
+      } finally {
+        coldStart.dispose();
+      }
+    }
+    expect(repository.calls, 7);
+  });
+  test('same or older release stays silent on cold start', () async {
+    for (final tag in ['v1.14.17', 'v1.14.16']) {
+      final coldStart = UpdateManager(
+          repository: repository, platform: platform, configured: true);
+      repository.response = () async => release(tag: tag);
+      try {
+        expect((await coldStart.check(automatic: true))!.isNew, false);
+        expect(coldStart.automaticPromptPending, false);
+        expect(coldStart.noticeSerial, 0);
+      } finally {
+        coldStart.dispose();
+      }
+    }
+  });
+  test('draft and prerelease never become an update', () {
+    for (final field in ['draft', 'prerelease']) {
+      expect(
+          () => UpdateInfo.fromRelease({
+                'tag_name': 'v1.15',
+                field: true,
+                'html_url': release().releasePageUrl,
+                'assets': [],
+              }, 'campus', 'course'),
+          throwsA(isA<UpdateException>()));
+    }
+  });
+  testWidgets(
+      'root observer does not block content; prompts once across route recreation',
+      (tester) async {
+    final key = GlobalKey<NavigatorState>();
+    final gate = Completer<UpdateInfo>();
+    repository.response = () => gate.future;
+    Widget root() => MaterialApp(
+        navigatorKey: key,
+        home: const Scaffold(body: Text('login content')),
+        builder: (_, child) => Stack(fit: StackFit.expand, children: [
+              Positioned.fill(child: child!),
+              UpdateObserver(navigatorKey: key, manager: manager),
+            ]));
+    await tester.pumpWidget(root());
+    await tester.pump();
+    expect(find.text('login content').hitTestable(), findsOneWidget);
+    expect(find.byType(AlertDialog), findsNothing);
+    gate.complete(release(tag: 'v1.14.22'));
+    await tester.pumpAndSettle();
+    expect(find.text('发现新版本：1.14.22'), findsOneWidget);
+    await tester.tap(find.text('稍后再说'));
+    await tester.pumpAndSettle();
+    key.currentState!.push(MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('other page'))));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(root());
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(repository.calls, 1);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+  testWidgets('update without APK opens release page', (tester) async {
+    await manager.initialize();
+    late BuildContext context;
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (value) {
+      context = value;
+      return const Scaffold();
+    })));
+    final dialog = showUpdateDialog(context, manager, release(assets: []));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('立即更新'));
+    await tester.pumpAndSettle();
+    await dialog;
+    expect(platform.releasePages, 1);
+    expect(platform.downloads, 0);
   });
   test('missing APK displays an actionable failure without download', () async {
     await expectLater(
@@ -251,9 +356,9 @@ void main() {
         final dialog = showUpdateDialog(context, manager, info);
         await tester.pumpAndSettle();
         expect(find.text('立即更新').hitTestable(), findsOneWidget);
-        expect(find.text('以后再说').hitTestable(), findsOneWidget);
+        expect(find.text('稍后再说').hitTestable(), findsOneWidget);
         expect(tester.takeException(), isNull);
-        await tester.tap(find.text('以后再说'));
+        await tester.tap(find.text('稍后再说'));
         await tester.pumpAndSettle();
         await dialog;
       }
