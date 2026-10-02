@@ -8,6 +8,13 @@
 - “稍后再说”将推迟时间保存到 SharedPreferences，24 小时内不再自动提示；手动检查不受限制。
 - 更新说明来自 Release Notes；有 APK 时使用现有下载/系统安装流程，没有 APK 时打开该 Release 页面。
 
+## 1.14.22
+
+- 基于已经保留的 1.14.21.1，继续保留其更新检测和 24 小时推迟策略。
+- Android versionName：`1.14.22`，versionCode：`66`。
+- 仅“常用网站”切换为三列九宫格，保留原 ListTile 数据、网址和所有点击回调。
+- 快速恢复列表：在 `lib/pages/settings_page.dart` 的“常用网站”卡片将 `useWebsiteGrid: true` 改为 `false`，不需重写路由。
+
 ## 在本电脑重建
 
 源码目录保持位于本工作区 `outputs` 下，脚本复用工作区 `work` 内的工具和缓存：

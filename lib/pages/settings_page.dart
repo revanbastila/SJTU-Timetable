@@ -6,6 +6,7 @@ import '../services/notification_service.dart';
 import '../services/canvas_extractor.dart';
 import '../state/app_controller.dart';
 import '../widgets/app_update_ui.dart';
+import '../widgets/common_website_grid.dart';
 import 'authenticated_web_page.dart';
 import 'login_page.dart';
 
@@ -305,6 +306,7 @@ class SettingsPageState extends State<SettingsPage> {
               const SizedBox(height: 22),
               _SettingCard(
                 title: '常用网站',
+                useWebsiteGrid: true,
                 children: [
                   ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -799,11 +801,15 @@ class _SettingCard extends StatelessWidget {
     required this.children,
     this.contentPadding = const EdgeInsets.fromLTRB(24, 14, 24, 14),
     this.titleInset = 0,
+    this.useWebsiteGrid = false,
   });
   final String? title;
   final List<Widget> children;
   final EdgeInsetsGeometry contentPadding;
   final double titleInset;
+  // Set only the websites card to false to restore its original list. The
+  // original ListTiles and navigation callbacks remain the single source.
+  final bool useWebsiteGrid;
   @override
   Widget build(BuildContext context) => Material(
         color: Theme.of(context).colorScheme.surface,
@@ -831,7 +837,10 @@ class _SettingCard extends StatelessWidget {
                   ),
                 ),
               ],
-              ...children,
+              if (useWebsiteGrid)
+                CommonWebsiteGrid(tiles: children.whereType<ListTile>().toList())
+              else
+                ...children,
             ],
           ),
         ),
