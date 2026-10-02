@@ -1,5 +1,13 @@
 # 本地版本交付与重建
 
+## 1.14.23
+
+- Android versionName：`1.14.23`（`android/version-name.txt`）；versionCode：`75`（`pubspec.yaml` 的 `+75`）。
+- 学期日期、周数和考试周由教学日历数据驱动；首页展示调休上课和考试周提示。
+- 课程表、提醒和桌面小组件共用学期周次与特殊日期计算，支持跨学期边界刷新。
+- “常用网站”调整为四列快捷入口网格，保留原有页面和点击行为。
+- Release APK 文件名：`SJTU-Timetable-v1.14.23.apk`；使用项目既有正式签名密钥。
+
 ## 1.14.21.1
 
 - Android versionName：`1.14.21.1`（`android/version-name.txt`）。
@@ -27,4 +35,4 @@
 
 两个 APK 沿用 `cn.sjtu.jiaotong_course` 和同一正式证书，属于同一个应用，不能同时安装。Android 通常禁止较低 versionCode 覆盖较高版本；较早 APK 作为归档，完整源码状态可直接打开重建。卸载再安装旧版会丢失本地应用数据，应由用户自行决定。
 
-本次提交、标签和源码目录只保存在本机，不推送 GitHub。
+源码和版本说明随 `v1.14.23` 正式发布到 GitHub；APK 仅作为 Release 附件分发，不纳入 Git 源码历史。

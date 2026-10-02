@@ -793,8 +793,8 @@ void main() {
       graduateSchoolUrl,
       'https://yjs.sjtu.edu.cn/gsapp/sys/emaphome/portal/index.do',
     );
-    expect(find.text('研究生应用管理平台'), findsOneWidget);
-    expect(find.text('Canvas教学平台'), findsOneWidget);
+    expect(find.text('研究生应用管理平台'), findsNothing);
+    expect(find.text('Canvas'), findsOneWidget);
     expect(find.textContaining('学号：'), findsNothing);
     expect(find.text('student'), findsOneWidget);
     expect(find.text('账号：student'), findsNothing);
@@ -916,7 +916,8 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     expect(find.text('水源社区'), findsOneWidget);
-    expect(find.text('传承·交大'), findsOneWidget);
+    expect(find.text('传承交大'), findsOneWidget);
+    expect(find.text('更多 >'), findsOneWidget);
     expect(find.text('选课社区'), findsOneWidget);
     await tester.scrollUntilVisible(
       find.text('图书馆'),
@@ -938,22 +939,7 @@ void main() {
     );
     expect(find.text('交大邮箱'), findsOneWidget);
     expect(sjtuMailUrl, 'https://mail.sjtu.edu.cn/modern/');
-    await tester.scrollUntilVisible(
-      find.text('Stay Young, Stay Simple ▣-▣'),
-      180,
-      scrollable: find.byType(Scrollable).first,
-    );
-    final myPageEgg = tester.widget<Text>(
-      find.text('Stay Young, Stay Simple ▣-▣'),
-    );
-    expect(myPageEgg.style?.color, const Color(0xFF8C9CAD));
-    expect(
-      find.ancestor(
-        of: find.text('Stay Young, Stay Simple ▣-▣'),
-        matching: find.byType(Center),
-      ),
-      findsOneWidget,
-    );
+    expect(find.text('Stay Young, Stay Simple ▣-▣'), findsNothing);
     expect(find.text('主题颜色'), findsNothing);
     await tester.drag(find.byType(ListView).first, const Offset(0, 1800));
     await tester.pumpAndSettle();

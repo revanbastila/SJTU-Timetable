@@ -34,6 +34,10 @@ class SettingsPageState extends State<SettingsPage> {
   AppController get app => widget.app;
   bool get advanced => widget.advanced;
 
+  // TEMPORARY 1.14.22.4 title-color comparison; no persistence.
+  // Remove this field, onTitleTap and useThemeLabelColor together.
+  bool _websiteThemeLabels = false;
+
   final FocusNode _studentNumberFocusNode = FocusNode();
 
   void clearStudentNumberSelection() {
@@ -218,11 +222,13 @@ class SettingsPageState extends State<SettingsPage> {
               _SettingCard(
                 key: const Key('my-information-card'),
                 title: '我的信息',
-                contentPadding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+                // Move title/account/details 12px left. Keep the divider's
+                // right inset so its line extends to the original endpoint.
+                contentPadding: const EdgeInsets.fromLTRB(4, 14, 8, 14),
                 titleInset: 8,
                 children: [
                   ListTile(
-                    contentPadding: const EdgeInsets.only(left: 8),
+                    contentPadding: const EdgeInsets.only(left: 8, right: 12),
                     minLeadingWidth: 38,
                     horizontalTitleGap: 16,
                     leading: const _SettingIcon(
@@ -241,7 +247,8 @@ class SettingsPageState extends State<SettingsPage> {
                       child: Divider(height: 1),
                     ),
                     Padding(
-                      padding: const EdgeInsets.only(left: 58, bottom: 4),
+                      padding:
+                          const EdgeInsets.only(left: 58, right: 12, bottom: 4),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -307,6 +314,10 @@ class SettingsPageState extends State<SettingsPage> {
               _SettingCard(
                 title: '常用网站',
                 useWebsiteGrid: true,
+                onTitleTap: () =>
+                    setState(() => _websiteThemeLabels = !_websiteThemeLabels),
+                useThemeLabelColor: _websiteThemeLabels,
+                contentPadding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
                 children: [
                   ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -335,28 +346,6 @@ class SettingsPageState extends State<SettingsPage> {
                       );
                       await app.refreshNow();
                     },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.school_outlined),
-                    title: const Text(
-                      '研究生应用管理平台',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '研究生应用管理平台',
-                          initialUrl: graduateSchoolUrl,
-                          targetHost: 'yjs.sjtu.edu.cn',
-                          app: app,
-                          preferSsoLogin: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
                   ),
                   const Divider(height: 1),
                   ListTile(
@@ -520,6 +509,28 @@ class SettingsPageState extends State<SettingsPage> {
                       ),
                     ),
                   ),
+                  const Divider(height: 1),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const _SettingIcon(icon: Icons.school_outlined),
+                    title: const Text(
+                      '研究生应用管理平台',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => AuthenticatedWebPage(
+                          title: '研究生应用管理平台',
+                          initialUrl: graduateSchoolUrl,
+                          targetHost: 'yjs.sjtu.edu.cn',
+                          app: app,
+                          preferSsoLogin: true,
+                          showCloseButton: true,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 22),
@@ -579,61 +590,6 @@ class SettingsPageState extends State<SettingsPage> {
                       ],
                     ),
                     onTap: () => _showThemePicker(context),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 22),
-              _SettingCard(
-                title: '学期设置',
-                children: [
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(
-                      icon: Icons.date_range_outlined,
-                    ),
-                    title: const Text(
-                      '第 1 周周一',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    subtitle: Text(
-                      '${app.termStart.year}.${app.termStart.month.toString().padLeft(2, '0')}.${app.termStart.day.toString().padLeft(2, '0')}',
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: app.termStart,
-                        firstDate: DateTime(2024),
-                        lastDate: DateTime(2032),
-                        helpText: '选择第 1 周周一',
-                      );
-                      if (picked != null) {
-                        await app.setTerm(picked, app.totalWeeks);
-                      }
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.view_week_outlined),
-                    title: const Text(
-                      '学期总周数',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: DropdownButton<int>(
-                      value: app.totalWeeks,
-                      underline: const SizedBox(),
-                      items: [
-                        for (var weeks = 16; weeks <= 22; weeks++)
-                          DropdownMenuItem(
-                            value: weeks,
-                            child: Text('$weeks 周'),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) app.setTerm(app.termStart, value);
-                      },
-                    ),
                   ),
                 ],
               ),
@@ -727,18 +683,6 @@ class SettingsPageState extends State<SettingsPage> {
                 ],
               ),
             ],
-            if (!advanced) ...[
-              const SizedBox(height: 18),
-              Center(
-                child: Text(
-                  'Stay Young, Stay Simple ▣-▣',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: const Color(0xFF8C9CAD)),
-                ),
-              ),
-            ],
             if (advanced) ...[
               _SettingCard(
                   title: '关于', children: const [UpdateSettingsEntry()]),
@@ -799,19 +743,25 @@ class _SettingCard extends StatelessWidget {
     super.key,
     this.title,
     required this.children,
-    this.contentPadding = const EdgeInsets.fromLTRB(24, 14, 24, 14),
+    this.contentPadding,
     this.titleInset = 0,
     this.useWebsiteGrid = false,
+    this.onTitleTap,
+    this.useThemeLabelColor = false,
   });
   final String? title;
   final List<Widget> children;
-  final EdgeInsetsGeometry contentPadding;
+  final EdgeInsetsGeometry? contentPadding;
   final double titleInset;
   // Set only the websites card to false to restore its original list. The
   // original ListTiles and navigation callbacks remain the single source.
   final bool useWebsiteGrid;
+  // TEMPORARY visual-test hooks, used only on the shortcut card.
+  final VoidCallback? onTitleTap;
+  final bool useThemeLabelColor;
   @override
   Widget build(BuildContext context) => Material(
+        key: ValueKey('setting-surface-$title'),
         color: Theme.of(context).colorScheme.surface,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
@@ -819,26 +769,75 @@ class _SettingCard extends StatelessWidget {
           side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
         ),
         child: Padding(
-          padding: contentPadding,
+          // Keep the current left alignment while letting trailing controls
+          // and dividers reach the matching right inset.
+          padding: contentPadding ??
+              (title == null
+                  ? const EdgeInsets.fromLTRB(24, 14, 24, 14)
+                  : const EdgeInsets.fromLTRB(12, 14, 12, 14)),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (title != null) ...[
                 Padding(
-                  padding: EdgeInsets.only(left: titleInset, bottom: 5),
-                  child: Text(
-                    title!,
-                    style: TextStyle(
-                      fontSize: 16,
-                      height: 1.15,
-                      fontWeight: FontWeight.w800,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
+                  padding: EdgeInsets.only(
+                      left: titleInset, bottom: useWebsiteGrid ? 16 : 5),
+                  child: Row(
+                      crossAxisAlignment: useWebsiteGrid
+                          ? CrossAxisAlignment.baseline
+                          : CrossAxisAlignment.center,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Expanded(
+                            child: GestureDetector(
+                                key: ValueKey('setting-heading-$title'),
+                                onTap: onTitleTap,
+                                child: Text(
+                                  title!,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    height: 1.15,
+                                    fontWeight: FontWeight.w800,
+                                    color:
+                                        Theme.of(context).colorScheme.primary,
+                                  ),
+                                ))),
+                        if (useWebsiteGrid)
+                          TextButton(
+                            key: const Key('website-more'),
+                            style: TextButton.styleFrom(
+                              padding: EdgeInsets.zero,
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                  builder: (_) => Scaffold(
+                                        appBar:
+                                            AppBar(title: const Text('常用网站')),
+                                        body: SafeArea(
+                                            child: ListView(
+                                          key: const Key('website-full-list'),
+                                          padding: const EdgeInsets.all(20),
+                                          children: [
+                                            _SettingCard(children: children)
+                                          ],
+                                        )),
+                                      )),
+                            ),
+                            child: const Text('更多 >'),
+                          ),
+                      ]),
                 ),
               ],
               if (useWebsiteGrid)
-                CommonWebsiteGrid(tiles: children.whereType<ListTile>().toList())
+                CommonWebsiteGrid(
+                    topPadding: 0,
+                    tiles: children.whereType<ListTile>().toList(),
+                    useThemeLabelColor: useThemeLabelColor,
+                    iconForTile: (tile) => tile.leading is _SettingIcon
+                        ? (tile.leading as _SettingIcon).icon
+                        : null)
               else
                 ...children,
             ],

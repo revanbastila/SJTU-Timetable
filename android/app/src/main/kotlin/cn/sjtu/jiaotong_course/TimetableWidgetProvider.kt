@@ -108,6 +108,10 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             null
         }
         val termStart = snapshot?.optString("termStart", "")?.let(::parseDate)
+        val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("Asia/Shanghai") }.format(today.time)
+        val effectiveDay = snapshot?.optJSONObject("effectiveDays")?.optJSONObject(dateKey)
+        val semesterStart = snapshot?.optString("semesterStart", "")?.let(::parseDate)
+        val semesterEnd = snapshot?.optString("semesterEnd", "")?.let(::parseDate)
         val savedCourses = snapshot?.optJSONArray("courses")
         // Accept the previous snapshot shape during app upgrades.
         val imported = savedCourses != null &&
@@ -115,7 +119,12 @@ class TimetableWidgetProvider : AppWidgetProvider() {
 
         views.setTextViewText(R.id.widget_date, today.get(Calendar.DAY_OF_MONTH).toString())
         val termLabel = snapshot?.optString("termLabel", "").orEmpty()
-        val week = termStart?.let { academicWeek(today, it, snapshot?.optInt("totalWeeks", 18) ?: 18) }
+        // Use Flutter's semester-aware week; retain old-snapshot compatibility.
+        val week = if ((semesterStart != null && dayNumber(today) < dayNumber(semesterStart)) ||
+            (semesterEnd != null && dayNumber(today) > dayNumber(semesterEnd))) null
+        else if (effectiveDay?.has("academicWeek") == true) {
+            effectiveDay.optInt("academicWeek", 0).takeIf { it > 0 }
+        } else termStart?.let { academicWeek(today, it, snapshot?.optInt("totalWeeks", 18) ?: 18) }
         val weekday = weekdayLabel(today.get(Calendar.DAY_OF_WEEK))
         val metadata = when {
             termLabel.isNotBlank() && week != null -> "$termLabel\n第${week}周 · $weekday"
@@ -132,8 +141,6 @@ class TimetableWidgetProvider : AppWidgetProvider() {
 
         // These dated courses were calculated by the shared Dart policy.
         // The old weekday path exists only for snapshots from older APKs.
-        val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("Asia/Shanghai") }.format(today.time)
-        val effectiveDay = snapshot?.optJSONObject("effectiveDays")?.optJSONObject(dateKey)
         val courses = coursesForToday(
             effectiveDay?.optJSONArray("courses") ?: savedCourses ?: JSONArray(),
             today,

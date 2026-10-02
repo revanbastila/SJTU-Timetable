@@ -68,10 +68,9 @@ class TimetableWidgetBridge {
         .map(serialize)
         .toList(growable: false);
     final dates = <String, DateTime>{
-      for (var offset = 0; offset < app.totalWeeks * 7; offset++)
-        calendarDateKey(DateTime(
-                termStart.year, termStart.month, termStart.day + offset)):
-            DateTime(termStart.year, termStart.month, termStart.day + offset),
+      for (final date
+          in app.teachingCalendar.datesForTerm(termStart, app.totalWeeks))
+        calendarDateKey(date): date,
       for (final rule in app.teachingCalendar.rules.values)
         calendarDateKey(rule.date): rule.date,
     };
@@ -80,6 +79,8 @@ class TimetableWidgetBridge {
     final effectiveDays = <String, Object?>{
       for (final entry in dates.entries)
         entry.key: {
+          'academicWeek': app.teachingCalendar
+              .weekForDate(entry.value, termStart, app.totalWeeks),
           'courses': app
               .getEffectiveCoursesForDate(entry.value)
               .map(serialize)
@@ -97,7 +98,15 @@ class TimetableWidgetBridge {
       'termStart':
           '${termStart.year.toString().padLeft(4, '0')}-${termStart.month.toString().padLeft(2, '0')}-${termStart.day.toString().padLeft(2, '0')}',
       'totalWeeks': app.totalWeeks,
-      'termLabel': '${termStart.year}${termStart.month >= 7 ? '秋季学期' : '春季学期'}',
+      'termLabel': app.currentSemester?.name ??
+          '${termStart.year}${termStart.month >= 7 ? '秋季学期' : '春季学期'}',
+      'academicYear': app.teachingCalendar.academicYear,
+      'semesterStart': app.currentSemester == null
+          ? null
+          : calendarDateKey(app.currentSemester!.startDate),
+      'semesterEnd': app.currentSemester == null
+          ? null
+          : calendarDateKey(app.currentSemester!.endDate),
       'courses': courses,
     });
     if (snapshot == _lastSnapshot || snapshot == _pendingSnapshot) return;

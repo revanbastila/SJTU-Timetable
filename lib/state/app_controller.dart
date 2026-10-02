@@ -42,18 +42,22 @@ class AppController extends ChangeNotifier {
     AppDatabase? database,
     CredentialStore? credentialStore,
     TeachingCalendarRepository? calendarRepository,
+    DateTime Function()? calendarClock,
   })  : database = database ?? AppDatabase(),
         calendarRepository = calendarRepository ?? TeachingCalendarRepository(),
+        _calendarClock = calendarClock ?? shanghaiNow,
         credentialStore = credentialStore ?? SecureCredentialStore();
 
   final NotificationService notifications;
   final TeachingCalendarRepository calendarRepository;
+  final DateTime Function() _calendarClock;
   TeachingCalendar teachingCalendar = const TeachingCalendar.empty();
   Timer? _calendarRefreshTimer;
   Timer? _calendarDayTimer;
   Timer? _calendarRetryTimer;
   int _calendarRetries = 0;
   bool _calendarSyncStarted = false;
+  String? _lastCalendarDay;
   bool _disposed = false;
   final AppDatabase database;
   final CredentialStore credentialStore;
@@ -80,8 +84,17 @@ class AppController extends ChangeNotifier {
   int reminderMinutes = 15;
   ReminderMode reminderMode = ReminderMode.off;
   DateTime lastUpdated = DateTime.now();
-  DateTime termStart = DateTime(2026, 9, 14);
-  int totalWeeks = 18;
+  DateTime _fallbackTermStart = DateTime(2026, 9, 14);
+  int _fallbackTotalWeeks = 18;
+  TeachingSemester? get currentSemester =>
+      teachingCalendar.semesterFor(_calendarClock());
+  DateTime get termStart =>
+      currentSemester?.firstWeekStart ?? _fallbackTermStart;
+  set termStart(DateTime value) =>
+      _fallbackTermStart = calendarCivilDate(value);
+  int get totalWeeks => currentSemester?.totalWeeks ?? _fallbackTotalWeeks;
+  set totalWeeks(int value) => _fallbackTotalWeeks = value;
+  List<int> get examWeeks => currentSemester?.examWeeks ?? const [];
   int selectedWeek = 1;
   Timer? _timer;
   Timer? _termReminderTimer;
@@ -263,11 +276,14 @@ class AppController extends ChangeNotifier {
   ];
 
   int get currentAcademicWeek =>
-      academicWeekFor(shanghaiNow(), termStart, totalWeeks);
+      currentAcademicWeekInTerm ??
+      academicWeekFor(_calendarClock(), termStart, totalWeeks);
   int? get currentAcademicWeekInTerm =>
-      academicWeekInTerm(shanghaiNow(), termStart, totalWeeks);
+      teachingCalendar.weekForDate(_calendarClock(), termStart, totalWeeks);
   String get currentTermStatus =>
-      calendarCivilDate(shanghaiNow()).isBefore(termStart) ? '学期未开始' : '学期已结束';
+      calendarCivilDate(_calendarClock()).isBefore(termStart)
+          ? '学期未开始'
+          : '学期已结束';
   List<Course> coursesForWeek(int week) =>
       courses.where((course) => course.isActiveInWeek(week)).toList();
   List<Course> getEffectiveCoursesForDate(DateTime date) => teachingCalendar
@@ -285,6 +301,7 @@ class AppController extends ChangeNotifier {
   void startTeachingCalendarSync() {
     if (_calendarSyncStarted || _disposed) return;
     _calendarSyncStarted = true;
+    _lastCalendarDay = calendarDateKey(_calendarClock());
     _logCalendarState('startup cache');
     unawaited(refreshTeachingCalendar());
     _calendarRefreshTimer = Timer.periodic(const Duration(minutes: 30),
@@ -298,7 +315,10 @@ class AppController extends ChangeNotifier {
     final next = nextShanghaiMidnight(now);
     _calendarDayTimer = Timer(next.difference(now), () {
       if (_disposed) return;
+      selectedWeek = currentAcademicWeek;
+      _lastCalendarDay = calendarDateKey(_calendarClock());
       notifyListeners();
+      unawaited(restoreReminders());
       _scheduleCalendarMidnight();
     });
   }
@@ -326,8 +346,16 @@ class AppController extends ChangeNotifier {
       _logCalendarState('refresh unchanged/failed');
       return;
     }
+    final previousStart = termStart;
+    final previousWeeks = totalWeeks;
     teachingCalendar = updated;
     notifications.calendar = updated;
+    selectedWeek = selectedWeek.clamp(1, totalWeeks);
+    // A changed first week or semester must reset the displayed date range.
+    // Follow today's remote week after applying an updated calendar snapshot.
+    if (termStart != previousStart || totalWeeks != previousWeeks) {
+      selectedWeek = currentAcademicWeek;
+    }
     _logCalendarState('memory updated');
     // The widget listener publishes the same dated calculations as the UI.
     notifyListeners();
@@ -337,7 +365,10 @@ class AppController extends ChangeNotifier {
   void _logCalendarState(String stage) {
     final today = shanghaiNow();
     debugPrint(
-        '[calendar] $stage version=${teachingCalendar.version} updated_at=${teachingCalendar.updatedAt} rules loaded=${teachingCalendar.rules.length}');
+        '[calendar] $stage version=${teachingCalendar.version} updated_at=${teachingCalendar.updatedAt} rules loaded=${teachingCalendar.rules.length} '
+        'academic_year=${teachingCalendar.academicYear} semester=${currentSemester?.id ?? "fallback"} '
+        'first_week_start=${calendarDateKey(termStart)} total_weeks=$totalWeeks '
+        'exam_weeks=$examWeeks current_week=$currentAcademicWeekInTerm');
     debugPrint(
         '[calendar] today: ${calendarDateKey(today)} timezone=Asia/Shanghai '
         'matched rule: ${teachingCalendar.ruleFor(today)?.type ?? "none"} '
@@ -799,13 +830,16 @@ class AppController extends ChangeNotifier {
   }
 
   void selectWeekForToday({DateTime? now}) {
-    final value = academicWeekFor(now ?? shanghaiNow(), termStart, totalWeeks);
+    final date = now ?? _calendarClock();
+    final value = teachingCalendar.weekForDate(date, termStart, totalWeeks) ??
+        academicWeekFor(date, termStart, totalWeeks);
     if (selectedWeek == value) return;
     selectedWeek = value;
     notifyListeners();
   }
 
   Future<void> setTerm(DateTime firstMonday, int weeks) async {
+    if (currentSemester != null) return; // Manual values are fallback only.
     final generation = ++_termUpdateGeneration;
     termStart = DateTime(firstMonday.year, firstMonday.month, firstMonday.day);
     totalWeeks = weeks.clamp(1, 30);
@@ -880,6 +914,13 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> restoreReminders() async {
+    // Resume may cross midnight or a semester boundary while timers slept.
+    final day = calendarDateKey(_calendarClock());
+    if (_lastCalendarDay != null && _lastCalendarDay != day && !_disposed) {
+      selectedWeek = currentAcademicWeek;
+      notifyListeners();
+    }
+    _lastCalendarDay = day;
     if (!loggedIn || reminderMode == ReminderMode.off) return;
     await _syncNotificationsSafely(courses, reminderMode,
         termStart: termStart, totalWeeks: totalWeeks);

@@ -10,6 +10,13 @@ import '../state/app_controller.dart';
 import 'course_detail_page.dart';
 import 'portal_sync_page.dart';
 
+/// Match civil dates rather than highlighting the same weekday in every week.
+int? weekdayInDisplayedWeek(DateTime today, DateTime monday) {
+  final date = calendarCivilDate(today);
+  final offset = date.difference(calendarCivilDate(monday)).inDays;
+  return offset >= 0 && offset < 7 ? date.weekday : null;
+}
+
 class WeekPage extends StatelessWidget {
   const WeekPage({super.key, required this.app});
   final AppController app;
@@ -20,6 +27,29 @@ class WeekPage extends StatelessWidget {
         animation: app,
         builder: (context, _) {
           final currentWeek = app.currentAcademicWeekInTerm;
+          final markerStyle = TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.primary);
+          double textWidth(String value, TextStyle style) {
+            final painter = TextPainter(
+                text: TextSpan(text: value, style: style),
+                textDirection: Directionality.of(context),
+                textScaler: MediaQuery.textScalerOf(context))
+              ..layout();
+            final width = painter.width;
+            painter.dispose();
+            return width;
+          }
+
+          final numberWidth = textWidth('第 ${app.totalWeeks} 周',
+              const TextStyle(fontSize: 19, fontWeight: FontWeight.w800));
+          final examWidth = textWidth('（考试周）', markerStyle);
+          final currentWidth = textWidth('（本周）', markerStyle);
+          final screenWidth = MediaQuery.sizeOf(context).width > 0
+              ? MediaQuery.sizeOf(context).width
+              : View.of(context).physicalSize.width /
+                  View.of(context).devicePixelRatio;
           final monday = mondayForAcademicWeek(app.termStart, app.selectedWeek);
           final sunday = monday.add(const Duration(days: 6));
           final visible = app
@@ -32,6 +62,7 @@ class WeekPage extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(14, 10, 8, 8),
                 child: Row(children: [
                   DropdownButtonHideUnderline(
+                    // selectedItemBuilder retains the original closed header.
                     child: DropdownButton<int>(
                       value: app.selectedWeek,
                       icon: Icon(
@@ -39,7 +70,8 @@ class WeekPage extends StatelessWidget {
                         color: Theme.of(context).colorScheme.primary,
                       ),
                       borderRadius: BorderRadius.circular(10),
-                      menuWidth: 190,
+                      menuWidth: (numberWidth + examWidth + currentWidth + 42)
+                          .clamp(0.0, screenWidth - 24),
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.primary,
                         fontSize: 19,
@@ -59,19 +91,26 @@ class WeekPage extends StatelessWidget {
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Text('第 $week 周'),
-                                if (currentWeek == week) ...[
-                                  const SizedBox(width: 5),
-                                  Text(
-                                    '（本周）',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color:
-                                          Theme.of(context).colorScheme.primary,
-                                    ),
-                                  ),
-                                ],
+                                SizedBox(
+                                    width: numberWidth,
+                                    child: Text('第 $week 周')),
+                                const SizedBox(width: 5),
+                                // Stable columns even without either marker.
+                                SizedBox(
+                                    width: examWidth,
+                                    child: app.examWeeks.contains(week)
+                                        ? Text('（考试周）',
+                                            key: ValueKey('week-exam-$week'),
+                                            style: markerStyle)
+                                        : null),
+                                const SizedBox(width: 5),
+                                SizedBox(
+                                    width: currentWidth,
+                                    child: currentWeek == week
+                                        ? Text('（本周）',
+                                            key: ValueKey('week-current-$week'),
+                                            style: markerStyle)
+                                        : null),
                               ],
                             ),
                           ),
@@ -145,6 +184,9 @@ class WeekPage extends StatelessWidget {
                             ?.label
                     ],
                     viewportWidth: constraints.maxWidth,
+                    todayWeekday: currentWeek == app.selectedWeek
+                        ? weekdayInDisplayedWeek(shanghaiNow(), monday)
+                        : null,
                     colorFor: (course) => Color(app.courseColorValue(course)),
                     onCourseTap: (course) => Navigator.of(context).push(
                       MaterialPageRoute(
@@ -165,12 +207,14 @@ class _Timetable extends StatefulWidget {
   const _Timetable({
     required this.courses,
     required this.dayLabels,
+    required this.todayWeekday,
     required this.viewportWidth,
     required this.colorFor,
     required this.onCourseTap,
   });
   final List<Course> courses;
   final List<String?> dayLabels;
+  final int? todayWeekday;
   final double viewportWidth;
   final Color Function(Course) colorFor;
   final ValueChanged<Course> onCourseTap;
@@ -357,9 +401,8 @@ class _TimetableState extends State<_Timetable> {
     Color gridLine,
   ) {
     final label = widget.dayLabels[day - 1];
-    final color = day > 5 && shanghaiNow().weekday == day
-        ? scheme.primary
-        : scheme.onSurfaceVariant;
+    final color =
+        widget.todayWeekday == day ? scheme.primary : scheme.onSurfaceVariant;
     return Container(
       width: dayWidth,
       height: headerHeight,

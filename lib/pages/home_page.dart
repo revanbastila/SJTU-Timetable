@@ -68,6 +68,9 @@ class _HomePageState extends State<HomePage> {
           final week = app.currentAcademicWeekInTerm;
           final todayCourses = app.getEffectiveCoursesForDate(now);
           final featured = featuredCourseAt(todayCourses, now);
+          final makeupMessage =
+              app.teachingCalendar.ruleFor(now)?.makeupMessage;
+          final isExamWeek = week != null && app.examWeeks.contains(week);
           final brightness = Theme.of(context).brightness;
           return ColoredBox(
             key: const Key('home-page-background'),
@@ -129,6 +132,9 @@ class _HomePageState extends State<HomePage> {
                         ],
                       ),
                     ),
+                    if (makeupMessage != null || isExamWeek)
+                      _CalendarNoticeBanner(
+                          makeupMessage: makeupMessage, isExamWeek: isExamWeek),
                   ],
                 ),
               ),
@@ -219,6 +225,51 @@ class _Header extends StatelessWidget {
   }
 }
 
+/// Occupies its own space below the scrolling tabs, above the shell navigation.
+class _CalendarNoticeBanner extends StatelessWidget {
+  const _CalendarNoticeBanner({this.makeupMessage, required this.isExamWeek});
+  final String? makeupMessage;
+  final bool isExamWeek;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    // Retain the former makeup note's tab-label typography and primary color.
+    final style = (theme.useMaterial3
+            ? theme.textTheme.titleSmall!
+            : theme.primaryTextTheme.bodyLarge!)
+        .merge(theme.tabBarTheme.labelStyle)
+        .copyWith(color: scheme.primary);
+    return Padding(
+      key: const Key('calendar-notice-banner'),
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 10),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLow,
+          border: Border.all(color: scheme.outlineVariant),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (makeupMessage != null)
+              Text(makeupMessage!,
+                  key: const Key('today-makeup-message'), style: style),
+            if (makeupMessage != null && isExamWeek) const SizedBox(height: 4),
+            if (isExamWeek)
+              Text('本周为考试周，请按安排准时参加考试，加油！',
+                  key: const Key('today-exam-message'), style: style),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _TodayList extends StatelessWidget {
   const _TodayList({
     required this.app,
@@ -245,7 +296,8 @@ class _TodayList extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
+                Expanded(
+                    child: Text(
                   '今天',
                   style: TextStyle(
                     fontSize: 20,
@@ -253,7 +305,7 @@ class _TodayList extends StatelessWidget {
                     color:
                         app.themeChoice.headerFor(Theme.of(context).brightness),
                   ),
-                ),
+                )),
                 Text(
                   '${courses.length} 门课',
                   style: TextStyle(

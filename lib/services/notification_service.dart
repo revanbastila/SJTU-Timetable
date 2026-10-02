@@ -101,10 +101,8 @@ class NotificationService {
     final desired = <int, ({Course course, DateTime date})>{};
     final now = tz.TZDateTime.now(tz.local);
     final dates = <String, DateTime>{
-      for (var offset = 0; offset < totalWeeks * 7; offset++)
-        calendarDateKey(DateTime(
-                termStart.year, termStart.month, termStart.day + offset)):
-            DateTime(termStart.year, termStart.month, termStart.day + offset),
+      for (final date in effectiveCalendar.datesForTerm(termStart, totalWeeks))
+        calendarDateKey(date): date,
       for (final rule in effectiveCalendar.rules.values)
         calendarDateKey(rule.date): rule.date,
     };
