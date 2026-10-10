@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiaotong_course/models/app_update.dart';
 import 'package:jiaotong_course/services/github_release_api.dart';
@@ -22,10 +23,17 @@ class Response extends Stream<List<int>> implements HttpClientResponse {
   final int statusCode;
   final String body;
   @override
-  StreamSubscription<List<int>> listen(void Function(List<int>)? onData,
-          {Function? onError, void Function()? onDone, bool? cancelOnError}) =>
-      Stream.value(utf8.encode(body)).listen(onData,
-          onError: onError, onDone: onDone, cancelOnError: cancelOnError);
+  StreamSubscription<List<int>> listen(
+    void Function(List<int>)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => Stream.value(utf8.encode(body)).listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -69,35 +77,85 @@ class Client implements HttpClient {
 
 void main() {
   test('official latest API request and parsed response', () async {
-    final client = Client(Request(Response(
-        200,
-        jsonEncode({
-          'tag_name': 'v1.14.18',
-          'name': 'Update',
-          'body': '- Fix',
-          'html_url': 'https://github.com/campus/course/releases/tag/v1.14.18',
-          'assets': [],
-        }))));
+    final client = Client(
+      Request(
+        Response(
+          200,
+          jsonEncode({
+            'tag_name': 'v1.14.18',
+            'name': 'Update',
+            'body': '- Fix',
+            'html_url':
+                'https://github.com/campus/course/releases/tag/v1.14.18',
+            'assets': [],
+          }),
+        ),
+      ),
+    );
     final api = GitHubReleaseApi(
-        owner: 'campus', repo: 'course', clientFactory: () => client);
+      owner: 'campus',
+      repo: 'course',
+      supportedAbis: () async => ['arm64-v8a'],
+      clientFactory: () => client,
+    );
     expect((await api.latest()).version, 'v1.14.18');
-    expect(client.uri.toString(),
-        'https://api.github.com/repos/campus/course/releases/latest');
+    expect(
+      client.uri.toString(),
+      'https://api.github.com/repos/campus/course/releases/latest',
+    );
     expect(client.request.followRedirects, false);
     expect(client.request.headers.values['X-GitHub-Api-Version'], '2022-11-28');
     expect(client.request.headers.values.containsKey('Authorization'), false);
     expect(client.connectionTimeout, const Duration(seconds: 10));
     expect(client.closed, true);
   });
+  test('device ABI reaches release selection instead of first APK', () async {
+    final client = Client(
+      Request(
+        Response(
+          200,
+          jsonEncode({
+            'tag_name': 'v1.14.23.1',
+            'html_url':
+                'https://github.com/campus/course/releases/tag/v1.14.23.1',
+            'assets': [
+              for (final abi in [
+                'universal',
+                'armeabi-v7a',
+                'x86_64',
+                'arm64-v8a',
+              ])
+                {
+                  'name': 'course-$abi.apk',
+                  'size': 100,
+                  'browser_download_url':
+                      'https://github.com/campus/course/releases/download/v1.14.23.1/course-$abi.apk',
+                },
+            ],
+          }),
+        ),
+      ),
+    );
+    final api = GitHubReleaseApi(
+      owner: 'campus',
+      repo: 'course',
+      supportedAbis: () async => ['arm64-v8a', 'armeabi-v7a'],
+      clientFactory: () => client,
+    );
+    expect((await api.latest()).apkName, 'course-arm64-v8a.apk');
+    expect(client.closed, true);
+  });
   for (final code in [404, 403, 500]) {
     test('HTTP $code gives a safe message and closes client', () async {
       final client = Client(Request(Response(code, '{}')));
       await expectLater(
-          GitHubReleaseApi(
-              owner: 'campus',
-              repo: 'course',
-              clientFactory: () => client).latest(),
-          throwsA(isA<UpdateException>()));
+        GitHubReleaseApi(
+          owner: 'campus',
+          repo: 'course',
+          clientFactory: () => client,
+        ).latest(),
+        throwsA(isA<UpdateException>()),
+      );
       expect(client.closed, true);
     });
   }
@@ -105,30 +163,34 @@ void main() {
     for (final failure in [
       const SocketException('offline'),
       TimeoutException('timeout'),
-      null
+      null,
     ]) {
       final client = Client(Request(Response(200, 'invalid JSON')))
         ..failure = failure;
       await expectLater(
-          GitHubReleaseApi(
-              owner: 'campus',
-              repo: 'course',
-              clientFactory: () => client).latest(),
-          throwsA(isA<UpdateException>()));
+        GitHubReleaseApi(
+          owner: 'campus',
+          repo: 'course',
+          clientFactory: () => client,
+        ).latest(),
+        throwsA(isA<UpdateException>()),
+      );
       expect(client.closed, true);
     }
   });
   test('unconfigured source does not create a network client', () async {
     var called = false;
     await expectLater(
-        GitHubReleaseApi(
-            owner: '',
-            repo: '',
-            clientFactory: () {
-              called = true;
-              return Client(Request(Response(200, '{}')));
-            }).latest(),
-        throwsA(isA<UpdateException>()));
+      GitHubReleaseApi(
+        owner: '',
+        repo: '',
+        clientFactory: () {
+          called = true;
+          return Client(Request(Response(200, '{}')));
+        },
+      ).latest(),
+      throwsA(isA<UpdateException>()),
+    );
     expect(called, false);
   });
 }

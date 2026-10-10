@@ -50,17 +50,29 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($GitHubRepo)) {
         $buildArgs += "--dart-define=GITHUB_REPO=$GitHubRepo"
     }
-    flutter @buildArgs
-    if ($LASTEXITCODE -ne 0) { throw 'APK 构建失败。' }
-
-    $apk = Join-Path $projectRoot 'build\app\outputs\flutter-apk\app-release.apk'
-    if (-not (Test-Path -LiteralPath $apk)) {
-        throw '构建命令完成，但没有找到 APK 输出文件。'
+    $apkRoot = Join-Path $projectRoot 'build\app\outputs\flutter-apk'
+    $deliveryRoot = Split-Path $projectRoot -Parent
+    foreach ($mode in @('universal', 'split')) {
+        $modeArgs = $buildArgs
+        if ($mode -eq 'split') { $modeArgs += '--split-per-abi' }
+        flutter @modeArgs
+        if ($LASTEXITCODE -ne 0) { throw "APK 构建失败：$mode" }
+        $architectures = if ($mode -eq 'split') {
+            @('arm64-v8a', 'armeabi-v7a', 'x86_64')
+        } else { @('universal') }
+        foreach ($architecture in $architectures) {
+            $sourceName = if ($architecture -eq 'universal') {
+                'app-release.apk'
+            } else { "app-$architecture-release.apk" }
+            $apk = Join-Path $apkRoot $sourceName
+            if (-not (Test-Path -LiteralPath $apk)) {
+                throw "构建命令完成，但没有找到 $sourceName"
+            }
+            $delivery = Join-Path $deliveryRoot "jiaotong_course-$buildName-slim-test-$architecture.apk"
+            Copy-Item -LiteralPath $apk -Destination $delivery -Force
+            Write-Host "APK 已生成：$delivery"
+        }
     }
-
-    $delivery = Join-Path (Split-Path $projectRoot -Parent) "jiaotong_course-$buildName.apk"
-    Copy-Item -LiteralPath $apk -Destination $delivery -Force
-    Write-Host "APK 已生成：$delivery"
 }
 finally {
     Pop-Location

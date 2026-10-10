@@ -78,14 +78,7 @@ List<MessageFeedEntry> buildMessageFeed(
       ),
     );
   }
-  final result = entries.values.toList();
-  result.sort((a, b) {
-    final first = DateTime.tryParse(a.createdAt);
-    final second = DateTime.tryParse(b.createdAt);
-    if (first != null && second != null) return second.compareTo(first);
-    if (first != null) return -1;
-    if (second != null) return 1;
-    return b.createdAt.compareTo(a.createdAt);
-  });
-  return result;
+  // AnnouncementFeed already owns chronological ordering; filtering stable
+  // message IDs preserves that order without a second date parse and sort.
+  return entries.values.toList();
 }

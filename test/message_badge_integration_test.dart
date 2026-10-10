@@ -1,3 +1,4 @@
+import 'support/memory_database.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiaotong_course/models/canvas_data.dart';
@@ -22,7 +23,7 @@ void main() {
       createdAt: '2026-09-24T08:00:00Z',
       htmlUrl: '',
     );
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..username = 'badge-ui'
       ..loggedIn = true
       ..courses = [];

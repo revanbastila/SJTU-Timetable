@@ -226,51 +226,6 @@ bool _isAnnouncementActivity(CanvasItem item) =>
     RegExp(r'announcement|discussion.?topic|公告', caseSensitive: false)
         .hasMatch('${item.type} ${item.assetType}');
 
-/* List<String> _identityKeys(AnnouncementFeedEntry entry) {
-  final item = entry.item;
-  final courseId = entry.canvasCourseId.isNotEmpty
-      ? entry.canvasCourseId
-      : item.courseId;
-  final result = <String>[];
-  final assetId = item.assetId.trim();
-  if (assetId.isNotEmpty && courseId.isNotEmpty) {
-    result.add('asset:$courseId:$assetId');
-  }
-
-  final url = Uri.tryParse(item.htmlUrl.trim());
-  if (url != null) {
-    final path = url.path.replaceFirst('/api/v1', '');
-    final match = RegExp(
-      r'/(?:discussion_topics|announcements)/(\d+)(?:/|$)',
-      caseSensitive: false,
-    ).firstMatch(path);
-    if (match != null) {
-      result.add('url:${courseId.isEmpty ? '' : '$courseId:'}${match.group(1)}');
-    }
-  }
-
-  final isAnnouncement = !entry.fromDashboard ||
-      RegExp(r'announcement|discussion.?topic|公告', caseSensitive: false)
-          .hasMatch('${item.type} ${item.assetType}');
-  final title = _normalized(item.title);
-  final date = _dateBucket(item.createdAt);
-  if (isAnnouncement && title.isNotEmpty && date.isNotEmpty) {
-    result.add('course-title:$courseId:$title:$date');
-  }
-
-  // Same-source duplicate activity rows can be collapsed by their event ID;
-  // this alias is deliberately origin-scoped to keep notices distinct from
-  // course announcement IDs.
-  if (item.id.trim().isNotEmpty) {
-    result.add('${entry.fromDashboard ? 'activity' : 'announcement'}-id:${item.id.trim()}');
-  }
-  if (result.isEmpty) {
-    result.add('content:${_normalized(entry.courseName)}:$title:$date:'
-        '${_normalized(item.messageHtml)}');
-  }
-  return result;
-} */
-
 String _dateBucket(String value) {
   final date = DateTime.tryParse(value);
   if (date == null) return value.trim();

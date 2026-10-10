@@ -1,3 +1,5 @@
+import 'support/memory_database.dart';
+import 'package:jiaotong_course/models/common_website.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiaotong_course/models/app_theme.dart';
@@ -57,7 +59,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(390, 1200);
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..studentName = '测试姓名'
       ..studentNumber = '123456789012'
       ..studentCollege = '测试学院';
@@ -128,10 +130,17 @@ void main() {
       child: Center(
           child: SizedBox(
               width: 300,
-              child: CommonWebsiteGrid(tiles: [
+              child: CommonWebsiteGrid(onOpen: (_) {}, entries: [
                 for (final name in samples)
-                  ListTile(
-                      title: Text(name), leading: const Icon(Icons.language)),
+                  CommonWebsite(
+                      name: name,
+                      shortcutName: name == 'Canvas教学平台'
+                          ? 'Canvas'
+                          : name == '传承·交大'
+                              ? '传承交大'
+                              : name,
+                      url: 'https://example.org',
+                      icon: Icons.language),
               ]))),
     ))));
     final side = (300.0 - 18) / 4;
@@ -152,9 +161,10 @@ void main() {
     }
   });
 
-  testWidgets('temporary title toggle changes only shortcut label colors',
+  testWidgets('website title has no remaining temporary style switch',
       (tester) async {
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     final scheme = ColorScheme.fromSeed(seedColor: Colors.red);
     await tester.pumpWidget(MaterialApp(
         theme: ThemeData(colorScheme: scheme),
@@ -166,11 +176,11 @@ void main() {
     final original = tester.widget<Text>(label).style!;
     final originalRect = tester.getRect(label);
     final icon = tester.getRect(find.byKey(const ValueKey('website-icon-0')));
-    for (final themeColor in [true, false]) {
+    for (var tap = 0; tap < 2; tap++) {
       await tester.tap(title);
       await tester.pump();
       final style = tester.widget<Text>(label).style!;
-      expect(style.color, themeColor ? scheme.primary : scheme.onSurface);
+      expect(style.color, scheme.onSurface);
       expect(style.fontSize, original.fontSize);
       expect(style.fontWeight, original.fontWeight);
       expect(tester.getRect(label), originalRect);
@@ -184,7 +194,8 @@ void main() {
   testWidgets(
       'all nine tiles use original destinations and authentication options',
       (tester) async {
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     final navigator = GlobalKey<RecordingNavigatorState>();
     await tester.pumpWidget(MaterialApp(
         home: RecordingNavigator(
@@ -297,12 +308,17 @@ void main() {
                     body: SingleChildScrollView(
                         child: Padding(
                   padding: const EdgeInsets.all(44),
-                  child: CommonWebsiteGrid(tiles: [
+                  child: CommonWebsiteGrid(onOpen: (_) {}, entries: [
                     for (final name in [...names, '未来网站10', '未来网站11'])
-                      ListTile(
-                          leading: const Icon(Icons.language, size: 38),
-                          title: Text(name),
-                          onTap: () {}),
+                      CommonWebsite(
+                          name: name,
+                          shortcutName: name == 'Canvas教学平台'
+                              ? 'Canvas'
+                              : name == '传承·交大'
+                                  ? '传承交大'
+                                  : name,
+                          url: 'https://example.org',
+                          icon: Icons.language),
                   ]),
                 )))),
           ));

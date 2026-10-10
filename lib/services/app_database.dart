@@ -9,6 +9,7 @@ import '../models/course.dart';
 class AppDatabase {
   Database? _database;
   bool get available => _database != null;
+  Database get _writable => _database ?? (throw StateError('本地数据库不可用，数据未保存'));
 
   Future<bool> initialize() async {
     try {
@@ -78,9 +79,9 @@ class AppDatabase {
     List<Course> courses,
     CanvasSnapshot canvas,
     Map<String, String> mappings,
+    Map<String, int> colors,
   ) async {
-    final db = _database;
-    if (db == null) return;
+    final db = _writable;
     final now = DateTime.now().toIso8601String();
     await db.transaction((txn) async {
       await txn.insert(
@@ -101,6 +102,14 @@ class AppDatabase {
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
+      await txn.insert(
+          'cache',
+          {
+            'cache_key': 'course_colors',
+            'value': jsonEncode(colors),
+            'updated_at': now,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
       await txn.delete('course_mapping');
       for (final entry in mappings.entries) {
         await txn.insert('course_mapping', {
@@ -112,8 +121,7 @@ class AppDatabase {
   }
 
   Future<void> saveCourses(List<Course> courses) async {
-    final db = _database;
-    if (db == null) return;
+    final db = _writable;
     await db.insert(
       'cache',
       {
@@ -126,8 +134,7 @@ class AppDatabase {
   }
 
   Future<void> saveCourseColors(Map<String, int> colors) async {
-    final db = _database;
-    if (db == null) return;
+    final db = _writable;
     await db.insert(
       'cache',
       {
@@ -140,13 +147,23 @@ class AppDatabase {
   }
 
   Future<void> saveMapping(String identity, String canvasCourseId) async {
-    final db = _database;
-    if (db == null) return;
+    final db = _writable;
     await db.insert(
       'course_mapping',
       {'course_identity': identity, 'canvas_course_id': canvasCourseId},
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+  }
+
+  Future<void> saveCanvas(CanvasSnapshot canvas) async {
+    await _writable.insert(
+        'cache',
+        {
+          'cache_key': 'canvas',
+          'value': jsonEncode(canvas.toMap()),
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<void> clear() async {

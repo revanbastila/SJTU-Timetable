@@ -358,6 +358,4 @@ class Course {
   static String _identity(String value) => value
       .toLowerCase()
       .replaceAll(RegExp(r'[\s\p{P}\p{S}]', unicode: true), '');
-
-  static List<Course> demo() => [];
 }

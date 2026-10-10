@@ -45,6 +45,7 @@ class AppUpdateBridge(activity: Activity) {
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
+            "supportedAbis" -> result.success(Build.SUPPORTED_ABIS.toList())
             "version" -> safely(result) {
                 val info = installedInfo()
                 result.success(mapOf("name" to (info.versionName ?: ""), "code" to versionCode(info)))

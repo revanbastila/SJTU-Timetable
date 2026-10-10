@@ -1,3 +1,4 @@
+import 'support/memory_database.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -76,7 +77,7 @@ void main() {
       'studentCollege_account-a': '旧学院',
     });
     final app = AppController(SilentNotifications(),
-        credentialStore: MemoryCredentialStore());
+        credentialStore: MemoryCredentialStore(), database: MemoryDatabase());
     await app.bootstrap();
     expect(app.studentNumber, '');
     expect(app.studentName, '');
@@ -96,7 +97,7 @@ void main() {
       () async {
     SharedPreferences.setMockInitialValues({});
     final app = AppController(SilentNotifications(),
-        credentialStore: MemoryCredentialStore());
+        credentialStore: MemoryCredentialStore(), database: MemoryDatabase());
     await app.bootstrap();
     await app.saveSyncedData('account-a', [], CanvasSnapshot.empty(),
         studentNumber: '123456789012', studentName: '杨惠泽');
@@ -128,16 +129,16 @@ void main() {
   test('background profile result updates only the active login', () async {
     SharedPreferences.setMockInitialValues({});
     final app = AppController(SilentNotifications(),
-        credentialStore: MemoryCredentialStore());
+        credentialStore: MemoryCredentialStore(), database: MemoryDatabase());
     await app.bootstrap();
     await app.saveSyncedData('account-a', [], CanvasSnapshot.empty());
     final generation = app.sessionGeneration;
-    await app.saveStudentNumberForSession(
-        'account-a', '123456789012', generation);
+    await app.saveStudentProfileForSession(
+        'account-a', '123456789012', '', generation);
     expect(app.studentNumber, '123456789012');
     await app.logout();
-    await app.saveStudentNumberForSession(
-        'account-a', '987654321012', generation);
+    await app.saveStudentProfileForSession(
+        'account-a', '987654321012', '', generation);
     expect(app.studentNumber, isEmpty);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('studentNumber_account-a'), isNull);
@@ -150,13 +151,13 @@ void main() {
         [AppThemeChoice.sjtuBlue, AppThemeChoice.sjtuRed]);
     SharedPreferences.setMockInitialValues({});
     final app = AppController(SilentNotifications(),
-        credentialStore: MemoryCredentialStore());
+        credentialStore: MemoryCredentialStore(), database: MemoryDatabase());
     await app.bootstrap();
     await app.setThemeChoice(AppThemeChoice.sjtuRed);
     expect(app.themeChoice.label, '交大红');
     expect(app.themeChoice.soft, isNot(app.themeChoice.primary));
     final restored = AppController(SilentNotifications(),
-        credentialStore: MemoryCredentialStore());
+        credentialStore: MemoryCredentialStore(), database: app.database);
     await restored.bootstrap();
     expect(restored.themeChoice, AppThemeChoice.sjtuRed);
     expect(AppThemeChoice.sjtuBlue.primary, const Color(0xFF315F86));
@@ -171,7 +172,7 @@ void main() {
       () async {
     SharedPreferences.setMockInitialValues({});
     final app = AppController(SilentNotifications(),
-        credentialStore: MemoryCredentialStore());
+        credentialStore: MemoryCredentialStore(), database: MemoryDatabase());
     await app.bootstrap();
     expect(app.interfaceMode, InterfaceMode.system);
     expect(InterfaceMode.values, [
@@ -184,7 +185,7 @@ void main() {
     await app.setInterfaceMode(InterfaceMode.dark);
 
     final restored = AppController(SilentNotifications(),
-        credentialStore: MemoryCredentialStore());
+        credentialStore: MemoryCredentialStore(), database: app.database);
     await restored.bootstrap();
     expect(restored.interfaceMode, InterfaceMode.dark);
     expect(InterfaceMode.system.themeMode, ThemeMode.system);
@@ -250,21 +251,22 @@ void main() {
       htmlUrl: '',
     );
     final app = AppController(SilentNotifications(),
-        credentialStore: MemoryCredentialStore());
+        credentialStore: MemoryCredentialStore(), database: MemoryDatabase());
     await app.bootstrap();
     app.canvas = CanvasSnapshot(
       dashboardItems: const [item, item],
       courses: const [],
       syncedAt: DateTime(2026, 9, 23),
     );
-    await app.login('unread-test', [], remember: true);
+    await app.saveSyncedData('unread-test', [], app.canvas, remember: true);
     expect(app.unreadMessageCount, 1);
     await app.markCanvasItemRead(item);
     expect(app.unreadMessageCount, 0);
     final restored = AppController(SilentNotifications(),
-        credentialStore: MemoryCredentialStore());
+        credentialStore: MemoryCredentialStore(), database: app.database);
     await restored.bootstrap();
     expect(restored.unreadMessageCount, 0);
+    expect(restored.messageFeed, hasLength(1));
     app.dispose();
     restored.dispose();
   });
@@ -274,10 +276,11 @@ void main() {
     final app = AppController(
       SilentNotifications(),
       credentialStore: credentials,
+      database: MemoryDatabase(),
     );
     await app.bootstrap();
     app.retainSessionCredentials('test-account', 'memory-only-password');
-    await app.login('test-account', [], remember: true);
+    await app.saveSyncedData('test-account', [], app.canvas, remember: true);
     expect(app.sessionPassword, 'memory-only-password');
     final stored = await SharedPreferences.getInstance();
     expect(
@@ -286,6 +289,7 @@ void main() {
     final restored = AppController(
       SilentNotifications(),
       credentialStore: credentials,
+      database: MemoryDatabase(),
     );
     await restored.bootstrap();
     expect(restored.loggedIn, true);
@@ -301,6 +305,7 @@ void main() {
     final afterLogout = AppController(
       SilentNotifications(),
       credentialStore: credentials,
+      database: MemoryDatabase(),
     );
     await afterLogout.bootstrap();
     expect(afterLogout.loggedIn, false);
@@ -314,12 +319,14 @@ void main() {
     final app = AppController(
       SilentNotifications(),
       credentialStore: credentials,
+      database: MemoryDatabase(),
     );
-    await app.login('test-account', [], remember: false);
+    await app.saveSyncedData('test-account', [], app.canvas, remember: false);
     expect(credentials.value, isNull);
     final restored = AppController(
       SilentNotifications(),
       credentialStore: credentials,
+      database: MemoryDatabase(),
     );
     await restored.bootstrap();
     expect(restored.loggedIn, false);
@@ -345,7 +352,7 @@ void main() {
   });
 
   test('entering timetable selects today while manual selection remains', () {
-    final app = AppController(SilentNotifications())
+    final app = AppController(SilentNotifications(), database: MemoryDatabase())
       ..termStart = DateTime(2026, 9, 14)
       ..totalWeeks = 18
       ..selectedWeek = 9;
@@ -364,6 +371,7 @@ void main() {
     final app = AppController(
       SilentNotifications(),
       credentialStore: MemoryCredentialStore(),
+      database: MemoryDatabase(),
     );
     final first = Course.fromMap({
       'sourceCourseId': '101',
@@ -502,6 +510,7 @@ void main() {
     final app = AppController(
       SilentNotifications(),
       credentialStore: MemoryCredentialStore(),
+      database: MemoryDatabase(),
     );
     await app.bootstrap();
     await app.saveSyncedData(
@@ -538,6 +547,7 @@ void main() {
     final app = AppController(
       SilentNotifications(),
       credentialStore: MemoryCredentialStore(),
+      database: MemoryDatabase(),
     );
     await app.bootstrap();
     final portalCourse = Course.fromMap({
@@ -579,24 +589,11 @@ void main() {
     app.dispose();
   });
 
-  test('term week count updates immediately without reminders', () async {
-    SharedPreferences.setMockInitialValues({});
-    final notifications = CountingNotifications();
-    final app = AppController(notifications);
-    final saved = app.setTerm(DateTime(2026, 9, 14), 20);
-    expect(app.totalWeeks, 20);
-    expect(app.termStart, DateTime(2026, 9, 14));
-    await saved;
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    expect(notifications.syncCalls, 0);
-    app.dispose();
-  });
-
   test('changing reminder lead time persists and reschedules reminders',
       () async {
     SharedPreferences.setMockInitialValues({});
     final notifications = CountingNotifications();
-    final app = AppController(notifications);
+    final app = AppController(notifications, database: MemoryDatabase());
     await app.setReminderMode(ReminderMode.push);
     final previousCalls = notifications.syncCalls;
 
@@ -634,6 +631,7 @@ void main() {
     final app = AppController(
       FailingNotifications(),
       credentialStore: MemoryCredentialStore(),
+      database: MemoryDatabase(),
     );
     final course = Course.fromMap({
       'name': '算法',
@@ -651,7 +649,9 @@ void main() {
     expect(result.notificationWarning, isNotNull);
     expect(app.courses.single.teacher, '李老师');
     final prefs = await SharedPreferences.getInstance();
-    expect(prefs.getString('courses'), contains('东上院101'));
+    expect(prefs.getString('courses'), isNull);
+    expect((app.database as MemoryDatabase).savedCourses!.single.location,
+        '东上院101');
     app.dispose();
   });
 }

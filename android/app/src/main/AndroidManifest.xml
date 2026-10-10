@@ -9,7 +9,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
-        android:label="交大课表"
+        android:label="交大课表·精简测试"
         android:name="${applicationName}"
         android:allowBackup="false"
         android:networkSecurityConfig="@xml/network_security_config"

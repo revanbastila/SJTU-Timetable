@@ -1,3 +1,4 @@
+import 'support/memory_database.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -146,7 +147,7 @@ void main() {
   test(
       'widget dated snapshot and week view share effective courses without mutating source',
       () async {
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..termStart = term
       ..totalWeeks = 2
       ..courses = original
@@ -164,12 +165,14 @@ void main() {
     await bridge.syncNow();
     bridge.detach();
     final days = captured!['effectiveDays'] as Map;
-    expect(days['2030-01-07']['courses'], isEmpty);
+    final catalog = captured!['courses'] as List;
+    expect(days['2030-01-07']['courseRefs'], isEmpty);
     expect(days['2030-01-07']['emptyMessage'], '今日放假，暂无课程');
     expect(days['2030-01-08']['emptyMessage'], '今日停课');
-    expect(days['2030-01-12']['courses'].single['id'], mon.id);
-    expect(days['2030-01-13']['courses'].single['id'], tue.id);
-    expect(days['2030-01-12']['courses'].single['teacher'], mon.teacher);
+    expect(catalog[days['2030-01-12']['courseRefs'].single]['id'], mon.id);
+    expect(catalog[days['2030-01-13']['courseRefs'].single]['id'], tue.id);
+    expect(catalog[days['2030-01-12']['courseRefs'].single]['teacher'],
+        mon.teacher);
     final week = app.effectiveCoursesForWeek(1);
     expect(week.map((c) => c.weekday), [6, 7]);
     expect(app.courses, same(original));
@@ -265,7 +268,7 @@ void main() {
     final now = DateTime.now();
     final monday = DateTime(now.year, now.month, now.day - now.weekday + 1);
     final course = lesson('Must not display', now.weekday, [1]);
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..termStart = monday
       ..courses = [course]
       ..selectedWeek = 1

@@ -1,3 +1,4 @@
+import 'support/memory_database.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,7 +29,7 @@ void main() {
       'header today accent follows theme and disappears on another week',
       (tester) async {
     final today = calendarCivilDate(shanghaiNow());
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..termStart = today.subtract(Duration(days: today.weekday - 1 + 14))
       ..selectedWeek = 3;
     for (final brightness in Brightness.values) {
@@ -68,7 +69,8 @@ void main() {
       'makeup notes use JSON weekday, persist with no upcoming class, and handle missing weekday',
       (tester) async {
     final today = shanghaiNow();
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     for (var day = 0; day <= 7; day++) {
       app.teachingCalendar = TeachingCalendar.parse(jsonEncode({
@@ -159,7 +161,8 @@ void main() {
               }
           ]
         }));
-    final app = AppController(NotificationService(), calendarClock: () => clock)
+    final app = AppController(NotificationService(),
+        calendarClock: () => clock, database: MemoryDatabase())
       ..courses = [
         for (var i = 0; i < 8; i++) lesson('Course $i', today.weekday, [3])
       ]
@@ -205,6 +208,10 @@ void main() {
               .first;
           await tester.scrollUntilVisible(find.text('Course 7'), 200,
               scrollable: vertical);
+          // scrollUntilVisible stops once the top enters the viewport; bring
+          // the complete text into view before comparing its bottom edge.
+          await tester.ensureVisible(find.text('Course 7'));
+          await tester.pumpAndSettle();
           expect(tester.getRect(find.text('Course 7')).bottom,
               lessThan(tester.getRect(banner).top));
           expect(tester.takeException(), isNull);

@@ -103,28 +103,19 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         val snapshotText = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(SNAPSHOT, null)
         val snapshot = try {
-            snapshotText?.let { JSONObject(it) }
+            snapshotText?.let { JSONObject(it).takeIf { value -> value.optInt("schema") == 3 } }
         } catch (_: Throwable) {
             null
         }
-        val termStart = snapshot?.optString("termStart", "")?.let(::parseDate)
         val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply { timeZone = TimeZone.getTimeZone("Asia/Shanghai") }.format(today.time)
         val effectiveDay = snapshot?.optJSONObject("effectiveDays")?.optJSONObject(dateKey)
-        val semesterStart = snapshot?.optString("semesterStart", "")?.let(::parseDate)
-        val semesterEnd = snapshot?.optString("semesterEnd", "")?.let(::parseDate)
-        val savedCourses = snapshot?.optJSONArray("courses")
-        // Accept the previous snapshot shape during app upgrades.
-        val imported = savedCourses != null &&
-            (snapshot?.optBoolean("hasTimetable", savedCourses.length() > 0) ?: false)
+        val savedCourses = snapshot?.optJSONArray("courses") ?: JSONArray()
+        val imported = snapshot?.optBoolean("hasTimetable", false) == true
 
         views.setTextViewText(R.id.widget_date, today.get(Calendar.DAY_OF_MONTH).toString())
         val termLabel = snapshot?.optString("termLabel", "").orEmpty()
-        // Use Flutter's semester-aware week; retain old-snapshot compatibility.
-        val week = if ((semesterStart != null && dayNumber(today) < dayNumber(semesterStart)) ||
-            (semesterEnd != null && dayNumber(today) > dayNumber(semesterEnd))) null
-        else if (effectiveDay?.has("academicWeek") == true) {
-            effectiveDay.optInt("academicWeek", 0).takeIf { it > 0 }
-        } else termStart?.let { academicWeek(today, it, snapshot?.optInt("totalWeeks", 18) ?: 18) }
+        // Only Dart interprets the academic calendar; native code renders its dated result.
+        val week = effectiveDay?.optInt("academicWeek", 0)?.takeIf { it > 0 }
         val weekday = weekdayLabel(today.get(Calendar.DAY_OF_WEEK))
         val metadata = when {
             termLabel.isNotBlank() && week != null -> "$termLabel\n第${week}周 · $weekday"
@@ -139,14 +130,8 @@ class TimetableWidgetProvider : AppWidgetProvider() {
             return views
         }
 
-        // These dated courses were calculated by the shared Dart policy.
-        // The old weekday path exists only for snapshots from older APKs.
         val courses = coursesForToday(
-            effectiveDay?.optJSONArray("courses") ?: savedCourses ?: JSONArray(),
-            today,
-            week,
-            effectiveDay != null
-        )
+            effectiveDay?.optJSONArray("courseRefs") ?: JSONArray(), savedCourses)
         Log.i("TeachingCalendar", "widget today=$dateKey effective courses=${courses.size} version=${snapshot?.optString("calendarVersion")} precomputed=${effectiveDay != null}")
         if (courses.isEmpty()) {
             val message = effectiveDay?.optString("emptyMessage", "").orEmpty()
@@ -193,23 +178,10 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         views.setImageViewBitmap(courseColorId(suffix), colorDot(course.color))
     }
 
-    private fun coursesForToday(
-        source: JSONArray,
-        today: Calendar,
-        week: Int?,
-        precomputed: Boolean = false
-    ): List<WidgetCourse> {
-        if (!precomputed && week == null) return emptyList()
-        val targetWeekday = when (today.get(Calendar.DAY_OF_WEEK)) {
-            Calendar.SUNDAY -> 7
-            else -> today.get(Calendar.DAY_OF_WEEK) - 1
-        }
+    private fun coursesForToday(refs: JSONArray, catalog: JSONArray): List<WidgetCourse> {
         val result = mutableListOf<WidgetCourse>()
-        for (index in 0 until source.length()) {
-            val item = source.optJSONObject(index) ?: continue
-            val day = item.optInt("weekday", -1)
-            if (!precomputed && day != targetWeekday) continue
-            if (!precomputed && !item.optJSONArray("activeWeeks").includes(week ?: 0)) continue
+        for (index in 0 until refs.length()) {
+            val item = catalog.optJSONObject(refs.optInt(index, -1)) ?: continue
             val startHour = item.optInt("startHour", -1)
             val startMinute = item.optInt("startMinute", 0)
             val endHour = item.optInt("endHour", -1)
@@ -233,7 +205,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
                 )
             )
         }
-        return result.sortedBy { it.startMinutes }
+        return result
     }
 
     private fun prioritizeCurrentAndUpcoming(
@@ -356,32 +328,6 @@ class TimetableWidgetProvider : AppWidgetProvider() {
         return bitmap
     }
 
-    private fun parseDate(value: String): Calendar? = try {
-        val date = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).apply { isLenient = false; timeZone = TimeZone.getTimeZone("Asia/Shanghai") }.parse(value)
-            ?: return null
-        Calendar.getInstance(TimeZone.getTimeZone("Asia/Shanghai")).apply { time = date }
-    } catch (_: Throwable) {
-        null
-    }
-
-    private fun academicWeek(today: Calendar, start: Calendar, totalWeeks: Int): Int? {
-        val day = dayNumber(today)
-        val first = dayNumber(start)
-        if (day < first || day >= first + totalWeeks.coerceAtLeast(1) * 7L) return null
-        return ((day - first) / 7L).toInt() + 1
-    }
-
-    private fun dayNumber(calendar: Calendar): Long {
-        return GregorianCalendar(TimeZone.getTimeZone("UTC")).apply {
-            clear()
-            set(
-                calendar.get(Calendar.YEAR),
-                calendar.get(Calendar.MONTH),
-                calendar.get(Calendar.DAY_OF_MONTH)
-            )
-        }.timeInMillis / 86_400_000L
-    }
-
     private fun weekdayLabel(day: Int): String = when (day) {
         Calendar.MONDAY -> "周一"
         Calendar.TUESDAY -> "周二"
@@ -395,12 +341,7 @@ class TimetableWidgetProvider : AppWidgetProvider() {
     private fun formatTime(hour: Int, minute: Int): String =
         String.format(Locale.ROOT, "%02d:%02d", hour, minute)
 
-    private fun JSONArray?.includes(value: Int): Boolean {
-        if (this == null) return true
-        if (length() == 0) return true
-        for (index in 0 until length()) if (optInt(index, Int.MIN_VALUE) == value) return true
-        return false
-    }
+
 
     private fun immutableFlag(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0

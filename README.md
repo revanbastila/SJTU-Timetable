@@ -1,77 +1,38 @@
-# 交大课表（Flutter Android）
+# 交大课表 · 精简结构测试版
 
-上海交通大学研究生课表助手。应用通过内置 WebView 打开学校官方教务系统完成登录并读取课表；如学校要求验证码或其他安全验证，由用户在官方页面手动完成，应用不绕过校园系统的验证机制。
+基于已完成的 1.14.23 精简结构测试版继续开发。本版 Android 版本为 `1.14.23.1+77`，包名 `cn.sjtu.jiaotong_course.slimtest`，应用名称「交大课表·精简测试」。使用现有 Android Debug 测试证书，可以覆盖升级上一版精简测试包。
 
-## 1.14.22 版本功能
+## 交付与审查文档
 
-### 登录与课表
+- [功能、网络接口、原生通道与架构审查](docs/architecture-audit.md)
+- [源码接口定位清单](docs/interface-inventory.md)
+- [修改文件清单](docs/change-manifest.md)
+- [APK、签名与测试核验记录](docs/delivery-verification.md)
+- [按处理器架构打包与更新选择](docs/apk-packaging.md)
 
-- 使用 jAccount 登录研究生选课系统。可选择“记住本人”；账号密码由 Android 安全存储加密保存，不以明文写入应用偏好设置。退出登录会清理保存的凭据和 WebView 登录数据。
-- 自动读取课程名称、教师、地点、时间和开课周次；支持单双周、间断周次以及手动选择教学周。
-- 首页展示当天课程、正在上的课程或下一节课；周课表默认展示周一至周五，可横向查看周末，并可切换学期内各周。
-- 按教学日历动态处理放假、停课和调休，日程、周课表、桌面组件和课程提醒共用实际日期课程；在线日历缓存到本地，离线时继续使用上次有效数据。
-- 设置页可调整学期第 1 周周一日期和学期总周数（16–22 周）。
-- SQLite 本地缓存支持离线查看。课表可手动刷新，也可按 15、30、60 或 120 分钟的间隔自动检查更新。
+四个 APK 位于本源码目录的上一级，文件名为 `jiaotong_course-1.14.23.1-slim-test-{架构}.apk`。架构分别为 `universal`、`arm64-v8a`、`armeabi-v7a`、`x86_64`。选择设备支持的架构包即可安装，无需同时安装多个 APK。原正式版及上一版精简测试源码、APK 均保留，本次未发布至 GitHub。
 
-### Canvas 与消息
+## 实际改动
 
-- 优先按 Canvas 课程目录匹配课表课程，也可以在课程详情中手动关联或解除关联。
-- 后台分批同步 Canvas 公告、课程大纲和班级成员；同步失败时保留已缓存内容，课表仍可正常使用。
-- 课程详情提供“公告 / 大纲 / 班级成员”标签，并可跳转到对应 Canvas 课程。
-- 首页的“消息”页汇总 Canvas 通知与课程公告，显示未读数量并支持标记已读。
-- 自动同步新公告并合并到对应课程和消息列表，保留去重、未读状态与发布时间排序。
+消息合并结果统一缓存；根界面仅响应自身依赖；小组件使用课程目录与日期引用，减少重复计算和传输；常用网站使用一份配置与一个打开入口；删除无调用方接口和临时颜色比较开关；业务快照仅保存在 SQLite，旧偏好快照仅迁移一次。完整行为与测量条件见审查文档。
 
-### 提醒与桌面组件
+## 使用
 
-- 可关闭课程提醒，或选择推送消息、闹钟提醒；提醒时间可设为上课前 5、10、15 或 30 分钟。
-- 提供 Android 桌面课表组件，显示当天课程名称、时间、地点和教师；点选课程可进入应用中的课程详情。组件只接收课表字段，不读取账号密码或 WebView 登录信息。
-
-### 交大服务与个性化
-
-- “常用网站”以 3 × 3 九宫格按顺序提供 Canvas教学平台、研究生应用管理平台、图书馆、交大邮箱、交大云盘、校园地图、水源社区、选课社区和传承·交大；复用现有图标及网站登录、导航功能。
-- 需要登录的独立站点在其官方页面中完成认证；课程地点可直接打开交大地图。
-- 支持跟随系统、浅色和深色模式，并提供经典蓝、交大红、雾青、鼠尾草、灰紫和岩蔷薇配色。
-- 每次冷启动在后台通过 GitHub Releases 检查应用更新，读取发布说明并复用安全下载/安装流程；默认更新仓库为 `revanbastila/SJTU-Timetable`。选择“稍后再说”后 24 小时内不再自动提示，手动检查不受限制。
-- 周课表的特殊日期标识与横向滑动提示适配当前主题，不改变课程布局。
+测试包可与正式包同时安装，登录、缓存和小组件彼此独立，首次使用需要重新登录。回退时打开原正式应用即可。测试包不能使用正式仓库 APK 覆盖升级，原有包名与签名验证继续保留。
 
 ## 构建
 
-需要 Flutter stable、Android SDK 和 JDK 17。进入本目录后运行：
+在当前源码目录运行 PowerShell：
 
 ```powershell
-flutter pub get
-flutter run
-flutter build apk --release
+. ./scripts/project_env.ps1
+flutter analyze --no-pub
+flutter test --no-pub --reporter expanded
+./scripts/build_apk.ps1 -Offline
 ```
 
-也可以使用项目构建脚本：
+脚本复用指定 E 盘工作区中的 Flutter、Android SDK、JDK、缓存以及 `work/android-user/debug.keystore`。构建采用 release 编译模式及测试证书，先生成通用 APK，再以 `--split-per-abi` 生成三个可独立安装的架构 APK。所有包保持 versionCode 77。`pubspec.yaml` 保留 Flutter 三段版本 `1.14.23+77`，Android 显示版本由 `android/version-name.txt` 和脚本的 `--build-name` 设置为 `1.14.23.1`。
 
-```powershell
-.\scripts\build_apk.ps1
-```
+## 验证范围
 
-Android 版本名在 `android/version-name.txt` 维护（支持四段热修复版本）；递增的 `versionCode` 在 `pubspec.yaml` 的 `version` 字段加号后维护，该字段版本部分遵循 Dart 三段语义版本。正式 APK 使用固定 Release 签名；签名密钥及本地 `android/key.properties` 不进入仓库。
-
-Release APK 通常生成在 `build/app/outputs/flutter-apk/app-release.apk`。脚本会从 `pubspec.yaml` 读取应用版本；若本机缺少 Android Gradle 工程文件，也会先初始化 Android 工程。
-
-自动更新仓库可通过构建参数配置：
-
-```powershell
-flutter build apk --release --dart-define=GITHUB_OWNER=<仓库所有者> --dart-define=GITHUB_REPO=<仓库名>
-```
-
-## 诊断工具
-
-`tools/share_inspector.py` 是传承·交大的独立诊断工具。用户在官方浏览器页面完成登录和必要验证后，工具仅导出传承·交大同源 JSON 响应；会移除 URL 查询参数，并对密码、Cookie、Token、会话和授权字段脱敏，不导出认证请求头或表单内容。
-
-安装 Playwright 后可运行：
-
-```powershell
-pip install playwright
-playwright install chromium
-python tools/share_inspector.py --output share-diagnostic.json
-```
-
-## 说明
-
-教务系统和 Canvas 页面由学校服务端动态提供。若页面结构调整导致字段无法识别，可检查 `lib/pages/portal_sync_page.dart` 与 `lib/services/portal_extractor.dart` 中的课表提取逻辑。
+静态检查通过，188 项自动化测试通过，包含匹配架构、通用包、ABI 优先顺序、只有不兼容附件、旧附件命名及原生桥接等测试。构建与签名结果见交付记录。尚未在本轮进行 MuMu、手机或校园账号联网实测。

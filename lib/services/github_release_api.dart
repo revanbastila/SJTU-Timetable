@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/app_update.dart';
+import 'android_update_bridge.dart';
 import 'update_config.dart';
 
 abstract class ReleaseRepository {
@@ -10,12 +11,14 @@ abstract class ReleaseRepository {
 }
 
 class GitHubReleaseApi implements ReleaseRepository {
-  GitHubReleaseApi(
-      {this.owner = UpdateConfig.githubOwner,
-      this.repo = UpdateConfig.githubRepo,
-      HttpClient Function()? clientFactory})
-      : _clientFactory = clientFactory ?? HttpClient.new;
+  GitHubReleaseApi({
+    this.owner = UpdateConfig.githubOwner,
+    this.repo = UpdateConfig.githubRepo,
+    this.supportedAbis = AndroidUpdateBridge.supportedAbis,
+    HttpClient Function()? clientFactory,
+  }) : _clientFactory = clientFactory ?? HttpClient.new;
   final String owner, repo;
+  final Future<List<String>> Function() supportedAbis;
   final HttpClient Function() _clientFactory;
 
   @override
@@ -26,16 +29,20 @@ class GitHubReleaseApi implements ReleaseRepository {
     final client = _clientFactory()
       ..connectionTimeout = const Duration(seconds: 10);
     try {
-      final uri =
-          Uri.https('api.github.com', '/repos/$owner/$repo/releases/latest');
-      final request =
-          await client.getUrl(uri).timeout(const Duration(seconds: 12));
+      final uri = Uri.https(
+        'api.github.com',
+        '/repos/$owner/$repo/releases/latest',
+      );
+      final request = await client
+          .getUrl(uri)
+          .timeout(const Duration(seconds: 12));
       request.followRedirects = false;
       request.headers.set('Accept', 'application/vnd.github+json');
       request.headers.set('User-Agent', 'JiaotongCourse-Android');
       request.headers.set('X-GitHub-Api-Version', '2022-11-28');
-      final response =
-          await request.close().timeout(const Duration(seconds: 15));
+      final response = await request.close().timeout(
+        const Duration(seconds: 15),
+      );
       if (response.statusCode != 200) {
         if (response.statusCode == 404) {
           throw const UpdateException('未找到公开仓库或正式 Release，请检查更新源配置');
@@ -50,14 +57,18 @@ class GitHubReleaseApi implements ReleaseRepository {
           }
           bytes.addAll(chunk);
         }
-      })()
-          .timeout(const Duration(seconds: 15));
+      })().timeout(const Duration(seconds: 15));
       final body = utf8.decode(bytes);
       final json = jsonDecode(body);
       if (json is! Map<String, dynamic>) {
         throw const UpdateException('无法识别 GitHub 更新信息');
       }
-      return UpdateInfo.fromRelease(json, owner, repo);
+      return UpdateInfo.fromRelease(
+        json,
+        owner,
+        repo,
+        supportedAbis: await supportedAbis(),
+      );
     } on UpdateException {
       rethrow;
     } on SocketException {

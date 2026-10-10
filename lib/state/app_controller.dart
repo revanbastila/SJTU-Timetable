@@ -61,7 +61,7 @@ class AppController extends ChangeNotifier {
   bool _disposed = false;
   final AppDatabase database;
   final CredentialStore credentialStore;
-  List<Course> courses = Course.demo();
+  List<Course> courses = [];
   CanvasSnapshot canvas = CanvasSnapshot.empty();
   Map<String, String> courseMappings = {};
   Map<String, int> courseColorValues = {};
@@ -97,7 +97,6 @@ class AppController extends ChangeNotifier {
   List<int> get examWeeks => currentSemester?.examWeeks ?? const [];
   int selectedWeek = 1;
   Timer? _timer;
-  Timer? _termReminderTimer;
   Future<void>? _logoutCleanup;
   Future<void>? _activeRefresh;
   DateTime? _lastCanvasFullSync;
@@ -106,13 +105,6 @@ class AppController extends ChangeNotifier {
   Completer<bool>? _catalogReady;
   int _sessionGeneration = 0;
   int get sessionGeneration => _sessionGeneration;
-
-  Future<void> saveStudentNumberForSession(
-    String account,
-    String number,
-    int generation,
-  ) =>
-      saveStudentProfileForSession(account, number, '', generation);
 
   Future<void> saveStudentProfileForSession(
     String account,
@@ -157,7 +149,6 @@ class AppController extends ChangeNotifier {
     }
   }
 
-  int _termUpdateGeneration = 0;
   Set<String> _readMessageIds = {};
 
   String get _readMessagesKey => 'readCanvasMessages_$username';
@@ -173,12 +164,24 @@ class AppController extends ChangeNotifier {
     return hash.toRadixString(16);
   }
 
-  int get unreadMessageCount => buildMessageFeed(
-        canvas,
-        courses,
-      )
-          .where((entry) => !_readMessageIds.contains(_messageId(entry.key)))
-          .length;
+  CanvasSnapshot? _feedCanvas;
+  List<Course>? _feedCourses;
+  List<MessageFeedEntry> _messages = const [];
+
+  // The snapshot/list are replaced on sync, linking and logout. Reading UI
+  // state never remerges/sorts the same messages or modifies source data.
+  List<MessageFeedEntry> get messageFeed {
+    if (!identical(canvas, _feedCanvas) || !identical(courses, _feedCourses)) {
+      _messages = List.unmodifiable(buildMessageFeed(canvas, courses));
+      _feedCanvas = canvas;
+      _feedCourses = courses;
+    }
+    return _messages;
+  }
+
+  int get unreadMessageCount => messageFeed
+      .where((entry) => !_readMessageIds.contains(_messageId(entry.key)))
+      .length;
 
   bool isMessageRead(String key) => _readMessageIds.contains(_messageId(key));
 
@@ -187,7 +190,7 @@ class AppController extends ChangeNotifier {
     // Migrate only items present in the cached snapshot. Preserve both the
     // previous ID-only keys and the 1.14.11 content keys while moving to
     // course-scoped announcement IDs.
-    final entries = buildMessageFeed(canvas, courses);
+    final entries = messageFeed;
     final previousCount = _readMessageIds.length;
     for (final entry in entries) {
       if (_readMessageIds.contains(_messageId(entry.key)) ||
@@ -214,7 +217,7 @@ class AppController extends ChangeNotifier {
     if (username.isEmpty) return;
     final before = _readMessageIds.length;
     _readMessageIds.addAll(
-      buildMessageFeed(canvas, courses).map((entry) => _messageId(entry.key)),
+      messageFeed.map((entry) => _messageId(entry.key)),
     );
     if (_readMessageIds.length == before) return;
     notifyListeners();
@@ -223,7 +226,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> markCanvasItemRead(CanvasItem item) async {
-    for (final entry in buildMessageFeed(canvas, courses)) {
+    for (final entry in messageFeed) {
       final candidate = entry.canvasItem;
       if (candidate == null) continue;
       final sameCourse = item.courseId.isEmpty ||
@@ -284,8 +287,6 @@ class AppController extends ChangeNotifier {
       calendarCivilDate(_calendarClock()).isBefore(termStart)
           ? '学期未开始'
           : '学期已结束';
-  List<Course> coursesForWeek(int week) =>
-      courses.where((course) => course.isActiveInWeek(week)).toList();
   List<Course> getEffectiveCoursesForDate(DateTime date) => teachingCalendar
       .getEffectiveCoursesForDate(date, courses, termStart, totalWeeks);
   List<Course> effectiveCoursesForWeek(int week) {
@@ -413,7 +414,9 @@ class AppController extends ChangeNotifier {
   }
 
   int courseColorValue(Course course) {
-    _ensureCourseColors(courses);
+    if (!courseColorValues.containsKey(course.courseIdentity)) {
+      _ensureCourseColors(courses);
+    }
     return courseColorValues[course.courseIdentity] ?? _coursePalette.first;
   }
 
@@ -478,7 +481,11 @@ class AppController extends ChangeNotifier {
       if (storedCanvas != null) canvas = storedCanvas;
     } catch (_) {}
 
-    if (courses.isEmpty) {
+    // Previous versions mirrored large snapshots in preferences. Import them
+    // once into the primary SQLite cache, then stop reading/writing the mirror.
+    final migrateLegacyCache =
+        database.available && prefs.getBool('sqliteCacheMigrated') != true;
+    if (migrateLegacyCache && courses.isEmpty) {
       final cached = prefs.getString('courses');
       if (cached != null) {
         try {
@@ -496,12 +503,13 @@ class AppController extends ChangeNotifier {
                     totalWeeks: totalWeeks,
                   ),
             ];
-            await database.replaceAll(courses, canvas, courseMappings);
           }
         } catch (_) {}
       }
     }
-    if (canvas.courses.isEmpty && canvas.dashboardItems.isEmpty) {
+    if (migrateLegacyCache &&
+        canvas.courses.isEmpty &&
+        canvas.dashboardItems.isEmpty) {
       final cachedCanvas = prefs.getString('canvas');
       if (cachedCanvas != null) {
         try {
@@ -512,7 +520,7 @@ class AppController extends ChangeNotifier {
         } catch (_) {}
       }
     }
-    if (courseColorValues.isEmpty) {
+    if (migrateLegacyCache && courseColorValues.isEmpty) {
       final cachedColors = prefs.getString('courseColors');
       if (cachedColors != null) {
         try {
@@ -539,10 +547,28 @@ class AppController extends ChangeNotifier {
       final linksChanged = courses.any(
         (course) => previousLinks[course.id] != (course.canvasCourseId ?? ''),
       );
-      if (linksChanged) await _persistCourses();
+      if (linksChanged && database.available) await _persistCourses();
     }
     await _migrateReadMessageKeys(prefs);
     _ensureCourseColors(courses);
+    if (migrateLegacyCache) {
+      try {
+        await database.replaceAll(
+            courses, canvas, courseMappings, courseColorValues);
+        await prefs.setBool('sqliteCacheMigrated', true);
+        for (final key in [
+          'courses',
+          'canvas',
+          'courseColors',
+          'courseSchema'
+        ]) {
+          await prefs.remove(key);
+        }
+      } catch (error) {
+        // Do not discard migration input unless the SQLite transaction committed.
+        debugPrint('[storage] cache migration failed: ${error.runtimeType}');
+      }
+    }
     _restartTimer();
     if (loggedIn && reminderMode != ReminderMode.off) {
       await _syncNotificationsSafely(
@@ -553,19 +579,6 @@ class AppController extends ChangeNotifier {
       );
     }
     notifyListeners();
-  }
-
-  Future<void> login(
-    String value,
-    List<Course> loaded, {
-    bool remember = false,
-  }) async {
-    await saveSyncedData(
-      value,
-      loaded.isEmpty ? Course.demo() : loaded,
-      canvas,
-      remember: remember,
-    );
   }
 
   Future<SyncSaveResult> saveSyncedData(
@@ -732,7 +745,7 @@ class AppController extends ChangeNotifier {
     canvas = updated;
     notifyListeners();
     try {
-      await _persist();
+      await database.saveCanvas(canvas);
     } catch (error) {
       debugPrint(
           '[canvas-announcements] cache save failed: ${error.runtimeType}');
@@ -769,7 +782,7 @@ class AppController extends ChangeNotifier {
         _logCanvasCourseMatches('details', courses, canvas);
         debugPrint(
           '[canvas-messages] total='
-          '${buildMessageFeed(canvas, courses).length} '
+          '${messageFeed.length} '
           'unread=$unreadMessageCount',
         );
         lastUpdated = DateTime.now();
@@ -838,35 +851,6 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setTerm(DateTime firstMonday, int weeks) async {
-    if (currentSemester != null) return; // Manual values are fallback only.
-    final generation = ++_termUpdateGeneration;
-    termStart = DateTime(firstMonday.year, firstMonday.month, firstMonday.day);
-    totalWeeks = weeks.clamp(1, 30);
-    selectedWeek = currentAcademicWeek;
-    notifyListeners();
-    final prefs = await SharedPreferences.getInstance();
-    if (generation != _termUpdateGeneration) return;
-    await prefs.setString('termStart', termStart.toIso8601String());
-    await prefs.setInt('totalWeeks', totalWeeks);
-    if (generation != _termUpdateGeneration ||
-        reminderMode == ReminderMode.off) {
-      return;
-    }
-    _termReminderTimer?.cancel();
-    _termReminderTimer = Timer(const Duration(milliseconds: 250), () {
-      if (generation != _termUpdateGeneration || !loggedIn) return;
-      unawaited(
-        _syncNotificationsSafely(
-          courses,
-          reminderMode,
-          termStart: termStart,
-          totalWeeks: totalWeeks,
-        ),
-      );
-    });
-  }
-
   Future<void> setRefreshMinutes(int value) async {
     refreshMinutes = value;
     final prefs = await SharedPreferences.getInstance();
@@ -899,7 +883,6 @@ class AppController extends ChangeNotifier {
         return '请在系统设置中允许交大课表发送通知后重试';
       }
     }
-    _termReminderTimer?.cancel();
     reminderMode = mode;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('reminderMode', mode.index);
@@ -954,7 +937,6 @@ class AppController extends ChangeNotifier {
     final signedOutUsername = username;
     _sessionGeneration++;
     _timer?.cancel();
-    _termReminderTimer?.cancel();
     loggedIn = false;
     rememberMe = false;
     refreshing = false;
@@ -1033,9 +1015,10 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _persist() async {
+    await database.replaceAll(
+        courses, canvas, courseMappings, courseColorValues);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('rememberMe', rememberMe);
-    await prefs.setInt('courseSchema', 5);
     await prefs.setString('username', username);
     if (studentNumber.isNotEmpty) {
       await prefs.setString('studentNumber_$username', studentNumber);
@@ -1047,23 +1030,9 @@ class AppController extends ChangeNotifier {
       await prefs.setString('studentCollege_$username', studentCollege);
     }
     await prefs.setString('lastUpdated', lastUpdated.toIso8601String());
-    await prefs.setString(
-      'courses',
-      jsonEncode(courses.map((course) => course.toMap()).toList()),
-    );
-    await prefs.setString('canvas', jsonEncode(canvas.toMap()));
-    await prefs.setString('courseColors', jsonEncode(courseColorValues));
-    await database.replaceAll(courses, canvas, courseMappings);
-    await database.saveCourseColors(courseColorValues);
   }
 
   Future<void> _persistCourses() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      'courses',
-      jsonEncode(courses.map((course) => course.toMap()).toList()),
-    );
-    await prefs.setString('courseColors', jsonEncode(courseColorValues));
     await database.saveCourses(courses);
     await database.saveCourseColors(courseColorValues);
   }
@@ -1097,10 +1066,9 @@ class AppController extends ChangeNotifier {
   }
 
   void _ensureCourseColors(List<Course> values) {
-    final identities = <String>[];
+    final identities = <String>{};
     for (final course in values) {
-      if (course.courseIdentity.isNotEmpty &&
-          !identities.contains(course.courseIdentity)) {
+      if (course.courseIdentity.isNotEmpty) {
         identities.add(course.courseIdentity);
       }
     }
@@ -1141,7 +1109,6 @@ class AppController extends ChangeNotifier {
     _calendarDayTimer?.cancel();
     _calendarRetryTimer?.cancel();
     _timer?.cancel();
-    _termReminderTimer?.cancel();
     super.dispose();
   }
 }

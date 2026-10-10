@@ -1,3 +1,4 @@
+import 'support/memory_database.dart';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,7 +32,8 @@ void main() {
     SharedPreferences.setMockInitialValues(
         {TeachingCalendarRepository.cacheKey: '{"version":1,"rules":[]}'});
     final app = AppController(NotificationService(),
-        calendarRepository: TeachingCalendarRepository(fetch: () async => text))
+        calendarRepository: TeachingCalendarRepository(fetch: () async => text),
+        database: MemoryDatabase())
       ..teachingCalendar = old
       ..termStart = DateTime(2026, 9, 14)
       ..courses = [
