@@ -356,7 +356,7 @@ class _DashboardAnnouncements extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = buildMessageFeed(app.canvas, app.courses);
+    final items = app.messageFeed;
     return RefreshIndicator(
       onRefresh: app.refreshNow,
       child: items.isEmpty

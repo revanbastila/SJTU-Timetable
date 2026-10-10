@@ -1,32 +1,21 @@
 import 'package:flutter/material.dart';
+import '../models/common_website.dart';
 
 /// Eight shortcuts only. The full list retains all original entries/callbacks.
 class CommonWebsiteGrid extends StatelessWidget {
   const CommonWebsiteGrid(
       {super.key,
-      required this.tiles,
-      this.iconForTile,
-      this.useThemeLabelColor = false,
+      required this.entries,
+      required this.onOpen,
       this.topPadding = 10});
-  final List<ListTile> tiles;
-  final IconData? Function(ListTile)? iconForTile;
-  // TEMPORARY 1.14.22.4 visual test; remove with the title toggle.
-  final bool useThemeLabelColor;
+  final List<CommonWebsite> entries;
+  final ValueChanged<CommonWebsite> onOpen;
   final double topPadding;
-
-  String _label(ListTile tile) {
-    final fullName = (tile.title as Text).data ?? '';
-    return switch (fullName) {
-      'Canvas教学平台' => 'Canvas',
-      '传承·交大' => '传承交大',
-      _ => fullName,
-    };
-  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final entries = tiles.take(8).toList();
+    final shortcuts = entries.take(8).toList();
     return LayoutBuilder(builder: (context, constraints) {
       const gap = 6.0;
       final side = (constraints.maxWidth - gap * 3) / 4;
@@ -48,12 +37,12 @@ class CommonWebsiteGrid extends StatelessWidget {
               adjusted ? (inheritedStyle.letterSpacing ?? 0) * .9 : null,
           height: 1.1,
           fontWeight: FontWeight.w400,
-          color: useThemeLabelColor ? scheme.primary : scheme.onSurface);
+          color: scheme.onSurface);
       // One consistent size for all labels, without ellipsis or changing squares.
       while (fontSize > 5) {
-        final fits = entries.every((tile) {
+        final fits = shortcuts.every((site) {
           final painter = TextPainter(
-              text: TextSpan(text: _label(tile), style: style()),
+              text: TextSpan(text: site.shortcutName, style: style()),
               textDirection: Directionality.of(context),
               maxLines: 1,
               textScaler: scaler)
@@ -69,7 +58,7 @@ class CommonWebsiteGrid extends StatelessWidget {
       return Padding(
         padding: EdgeInsets.only(top: topPadding),
         child: Column(children: [
-          for (var start = 0; start < entries.length; start += 4) ...[
+          for (var start = 0; start < shortcuts.length; start += 4) ...[
             if (start > 0) const SizedBox(height: gap),
             Row(children: [
               for (var column = 0; column < 4; column++) ...[
@@ -77,7 +66,7 @@ class CommonWebsiteGrid extends StatelessWidget {
                 SizedBox(
                   width: side,
                   height: side,
-                  child: start + column >= entries.length
+                  child: start + column >= shortcuts.length
                       ? null
                       : Material(
                           key: ValueKey('website-grid-tile-${start + column}'),
@@ -87,7 +76,7 @@ class CommonWebsiteGrid extends StatelessWidget {
                               side: BorderSide(color: scheme.outlineVariant)),
                           clipBehavior: Clip.antiAlias,
                           child: InkWell(
-                            onTap: entries[start + column].onTap,
+                            onTap: () => onOpen(shortcuts[start + column]),
                             child: Padding(
                               padding: EdgeInsets.fromLTRB(4, topInset, 4, 4),
                               child: Column(children: [
@@ -102,14 +91,7 @@ class CommonWebsiteGrid extends StatelessWidget {
                                       minHeight: glyphSize,
                                       maxHeight: glyphSize,
                                       child: Icon(
-                                        iconForTile?.call(
-                                                entries[start + column]) ??
-                                            (entries[start + column].leading
-                                                    is Icon
-                                                ? (entries[start + column]
-                                                        .leading as Icon)
-                                                    .icon
-                                                : null),
+                                        shortcuts[start + column].icon,
                                         key: ValueKey(
                                             'website-icon-${start + column}'),
                                         size: glyphSize,
@@ -123,7 +105,8 @@ class CommonWebsiteGrid extends StatelessWidget {
                                   fit: BoxFit.scaleDown,
                                   child: SizedBox(
                                     width: side - 8,
-                                    child: Text(_label(entries[start + column]),
+                                    child: Text(
+                                        shortcuts[start + column].shortcutName,
                                         maxLines: 1,
                                         softWrap: false,
                                         textAlign: TextAlign.center,

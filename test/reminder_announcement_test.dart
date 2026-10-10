@@ -1,3 +1,4 @@
+import 'support/memory_database.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -192,7 +193,7 @@ void main() {
   test(
       'new notice increments unread bubble; previous read state survives edits and repeat polls',
       () async {
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..username = 'account'
       ..loggedIn = true
       ..canvas = snapshot()

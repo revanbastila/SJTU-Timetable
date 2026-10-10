@@ -37,11 +37,6 @@ class AndroidWebHistory {
         {'webViewIdentifier': _identifier},
       );
 
-  Future<void> goBackOrForward(int offset) => _channel.invokeMethod<void>(
-        'goBackOrForward',
-        {'webViewIdentifier': _identifier, 'offset': offset},
-      );
-
   Future<void> goBackTo(Uri target, {bool stepwise = false}) =>
       _channel.invokeMethod<void>(
         'goBackTo',

@@ -19,9 +19,15 @@ class TimetableWidgetBridge {
   String? _lastSnapshot;
   String? _pendingSnapshot;
   bool _syncing = false;
+  // Cache only calculation/encoding; native delivery still retries after a
+  // failed channel call. Read flags and sync progress do not change a schedule.
+  (List<Course>, TeachingCalendar, DateTime, int, TeachingSemester?)? _inputs;
+  Map<String, int> _colors = const {};
+  String? _calculatedSnapshot;
   ValueChanged<String>? onOpenCourse;
 
   void attach(AppController app) {
+    detach();
     _app = app;
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'openCourse' && call.arguments is String) {
@@ -37,6 +43,9 @@ class TimetableWidgetBridge {
     _app?.removeListener(_onAppChanged);
     _app = null;
     _pendingSnapshot = null;
+    _inputs = null;
+    _calculatedSnapshot = null;
+    _lastSnapshot = null;
   }
 
   void _onAppChanged() {
@@ -50,23 +59,54 @@ class TimetableWidgetBridge {
     final app = _app;
     if (app == null) return;
     final termStart = app.termStart;
+    final inputs = (
+      app.courses,
+      app.teachingCalendar,
+      termStart,
+      app.totalWeeks,
+      app.currentSemester
+    );
+    final snapshot =
+        inputs == _inputs && mapEquals(_colors, app.courseColorValues)
+            ? _calculatedSnapshot!
+            : _calculateSnapshot(app, termStart);
+    _inputs = inputs;
+    _colors = Map.of(app.courseColorValues);
+    _calculatedSnapshot = snapshot;
+    if (snapshot == _lastSnapshot || snapshot == _pendingSnapshot) return;
+    _pendingSnapshot = snapshot;
+    if (!_syncing) await _drainSnapshots();
+  }
+
+  String _calculateSnapshot(AppController app, DateTime termStart) {
     Map<String, Object?> serialize(Course course) => <String, Object?>{
           'id': course.id,
           'name': course.name,
           'location': course.location,
           'teacher': course.teacher,
-          'weekday': course.weekday,
-          'activeWeeks': course.activeWeeks,
           'startHour': course.startHour,
           'startMinute': course.startMinute,
           'endHour': course.endHour,
           'endMinute': course.endMinute,
           'widgetColor': app.courseColorValue(course),
         };
-    final courses = app.courses
-        .where((course) => course.hasSchedule)
-        .map(serialize)
-        .toList(growable: false);
+    final courses = <Map<String, Object?>>[];
+    final refs = <(String, String, String, String, String, int, int), int>{};
+    int courseRef(Course course) => refs.putIfAbsent((
+          course.id,
+          course.courseIdentity,
+          course.name,
+          course.teacher,
+          course.location,
+          course.startMinutes,
+          course.endMinutes
+        ), () {
+          courses.add(serialize(course));
+          return courses.length - 1;
+        });
+    for (final course in app.courses.where((course) => course.hasSchedule)) {
+      courseRef(course);
+    }
     final dates = <String, DateTime>{
       for (final date
           in app.teachingCalendar.datesForTerm(termStart, app.totalWeeks))
@@ -81,41 +121,29 @@ class TimetableWidgetBridge {
         entry.key: {
           'academicWeek': app.teachingCalendar
               .weekForDate(entry.value, termStart, app.totalWeeks),
-          'courses': app
+          'courseRefs': app
               .getEffectiveCoursesForDate(entry.value)
-              .map(serialize)
+              .map(courseRef)
               .toList(),
           'emptyMessage':
               app.teachingCalendar.ruleFor(entry.value)?.emptyMessage,
         },
     };
     final snapshot = jsonEncode(<String, Object?>{
-      'schema': 2,
+      // Course metadata crosses the channel once; dates refer to that catalog.
+      'schema': 3,
       'calendarVersion': app.teachingCalendar.version,
-      'calendarDigest': app.teachingCalendar.fingerprint,
       'effectiveDays': effectiveDays,
       'hasTimetable': courses.isNotEmpty,
-      'termStart':
-          '${termStart.year.toString().padLeft(4, '0')}-${termStart.month.toString().padLeft(2, '0')}-${termStart.day.toString().padLeft(2, '0')}',
-      'totalWeeks': app.totalWeeks,
       'termLabel': app.currentSemester?.name ??
           '${termStart.year}${termStart.month >= 7 ? '秋季学期' : '春季学期'}',
-      'academicYear': app.teachingCalendar.academicYear,
-      'semesterStart': app.currentSemester == null
-          ? null
-          : calendarDateKey(app.currentSemester!.startDate),
-      'semesterEnd': app.currentSemester == null
-          ? null
-          : calendarDateKey(app.currentSemester!.endDate),
       'courses': courses,
     });
-    if (snapshot == _lastSnapshot || snapshot == _pendingSnapshot) return;
     final today = calendarDateKey(shanghaiNow());
     debugPrint('[calendar] widget snapshot: today=$today '
         'effective courses=${app.getEffectiveCoursesForDate(shanghaiNow()).length} '
         'version=${app.teachingCalendar.version}');
-    _pendingSnapshot = snapshot;
-    if (!_syncing) await _drainSnapshots();
+    return snapshot;
   }
 
   Future<void> _drainSnapshots() async {

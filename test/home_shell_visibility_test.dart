@@ -1,3 +1,4 @@
+import 'support/memory_database.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -73,7 +74,8 @@ void main() {
   late AppController app;
   late TestWebViewPlatform platform;
   setUp(() {
-    app = AppController(NotificationService())..loggedIn = true;
+    app = AppController(NotificationService(), database: MemoryDatabase())
+      ..loggedIn = true;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
             const MethodChannel('cn.sjtu.jiaotong_course/announcements'),

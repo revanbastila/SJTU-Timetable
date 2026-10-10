@@ -184,16 +184,6 @@ class MainActivity : FlutterActivity() {
                         }
                     ))
                 }
-                "goBackOrForward" -> {
-                    val offset = call.argument<Int>("offset")
-                    if (offset == null || offset >= 0 ||
-                        !webView.canGoBackOrForward(offset)) {
-                        result.error("invalid_history", "Back entry is unavailable", null)
-                    } else {
-                        webView.goBackOrForward(offset)
-                        result.success(null)
-                    }
-                }
                 "goBackTo" -> {
                     val targetUrl = call.argument<String>("targetUrl")
                     if (targetUrl != null) {

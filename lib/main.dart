@@ -45,47 +45,80 @@ void _openWidgetCourse(AppController app, String id) {
   ));
 }
 
-class JiaotongCourseApp extends StatelessWidget {
+class JiaotongCourseApp extends StatefulWidget {
   const JiaotongCourseApp({super.key, required this.app});
 
   final AppController app;
 
   @override
+  State<JiaotongCourseApp> createState() => _JiaotongCourseAppState();
+}
+
+class _JiaotongCourseAppState extends State<JiaotongCourseApp> {
+  AppController get app => widget.app;
+  (AppThemeChoice, InterfaceMode, bool) get _appearance =>
+      (app.themeChoice, app.interfaceMode, app.loggedIn);
+  late (AppThemeChoice, InterfaceMode, bool) _rendered;
+
+  @override
+  void initState() {
+    super.initState();
+    _rendered = _appearance;
+    app.addListener(_onAppChanged);
+  }
+
+  void _onAppChanged() {
+    if (_rendered == _appearance) return;
+    setState(() => _rendered = _appearance);
+  }
+
+  @override
+  void didUpdateWidget(covariant JiaotongCourseApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.app != app) {
+      oldWidget.app.removeListener(_onAppChanged);
+      app.addListener(_onAppChanged);
+      _rendered = _appearance;
+    }
+  }
+
+  @override
+  void dispose() {
+    app.removeListener(_onAppChanged);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AppScope(
-        app: app,
-        child: AnimatedBuilder(
-          animation: app,
-          builder: (context, _) => MaterialApp(
-            title: '交大课表',
-            debugShowCheckedModeBanner: false,
-            navigatorKey: _navigatorKey,
-            theme: _theme(app.themeChoice, Brightness.light),
-            darkTheme: _theme(app.themeChoice, Brightness.dark),
-            themeMode: app.interfaceMode.themeMode,
-            home: app.loggedIn ? HomeShell(app: app) : LoginPage(app: app),
-            builder: (context, child) {
-              final theme = Theme.of(context);
-              final followsDark = theme.brightness == Brightness.dark;
-              final scheme = theme.colorScheme;
-              return AnnotatedRegion<SystemUiOverlayStyle>(
-                value: SystemUiOverlayStyle(
-                  statusBarColor: theme.scaffoldBackgroundColor,
-                  statusBarIconBrightness:
-                      followsDark ? Brightness.light : Brightness.dark,
-                  systemNavigationBarColor: scheme.surface,
-                  systemNavigationBarIconBrightness:
-                      followsDark ? Brightness.light : Brightness.dark,
-                  systemNavigationBarDividerColor: scheme.outlineVariant,
-                ),
-                child: Stack(fit: StackFit.expand, children: [
-                  Positioned.fill(child: child ?? const SizedBox.shrink()),
-                  UpdateObserver(navigatorKey: _navigatorKey),
-                ]),
-              );
-            },
+    return MaterialApp(
+      title: '交大课表',
+      debugShowCheckedModeBanner: false,
+      navigatorKey: _navigatorKey,
+      theme: _theme(app.themeChoice, Brightness.light),
+      darkTheme: _theme(app.themeChoice, Brightness.dark),
+      themeMode: app.interfaceMode.themeMode,
+      home: app.loggedIn ? HomeShell(app: app) : LoginPage(app: app),
+      builder: (context, child) {
+        final theme = Theme.of(context);
+        final followsDark = theme.brightness == Brightness.dark;
+        final scheme = theme.colorScheme;
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle(
+            statusBarColor: theme.scaffoldBackgroundColor,
+            statusBarIconBrightness:
+                followsDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarColor: scheme.surface,
+            systemNavigationBarIconBrightness:
+                followsDark ? Brightness.light : Brightness.dark,
+            systemNavigationBarDividerColor: scheme.outlineVariant,
           ),
-        ));
+          child: Stack(fit: StackFit.expand, children: [
+            Positioned.fill(child: child ?? const SizedBox.shrink()),
+            UpdateObserver(navigatorKey: _navigatorKey),
+          ]),
+        );
+      },
+    );
   }
 
   ThemeData _theme(AppThemeChoice choice, Brightness brightness) {
@@ -195,11 +228,4 @@ class JiaotongCourseApp extends StatelessWidget {
       ),
     );
   }
-}
-
-class AppScope extends InheritedNotifier<AppController> {
-  const AppScope({super.key, required super.child, required AppController app})
-      : super(notifier: app);
-  static AppController of(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<AppScope>()!.notifier!;
 }

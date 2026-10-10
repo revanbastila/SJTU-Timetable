@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+
 import '../models/app_update.dart';
 import 'update_config.dart';
 
@@ -13,6 +14,8 @@ abstract class UpdatePlatform {
 
 class AndroidUpdateBridge implements UpdatePlatform {
   static const channel = MethodChannel('cn.sjtu.jiaotong_course/updates');
+  static Future<List<String>> supportedAbis() async =>
+      await channel.invokeListMethod<String>('supportedAbis') ?? const [];
   @override
   Future<AppVersion> version() async {
     final value = await channel.invokeMapMethod<String, dynamic>('version');
@@ -23,18 +26,20 @@ class AndroidUpdateBridge implements UpdatePlatform {
   @override
   Future<Map<String, dynamic>> download(UpdateInfo info) async =>
       Map<String, dynamic>.from(
-          await channel.invokeMapMethod<String, dynamic>('download', {
-                'owner': UpdateConfig.githubOwner,
-                'repo': UpdateConfig.githubRepo,
-                'url': info.apkUrl,
-                'name': info.apkName,
-                'size': info.apkSize,
-                'digest': info.apkDigest,
-              }) ??
-              const {});
+        await channel.invokeMapMethod<String, dynamic>('download', {
+              'owner': UpdateConfig.githubOwner,
+              'repo': UpdateConfig.githubRepo,
+              'url': info.apkUrl,
+              'name': info.apkName,
+              'size': info.apkSize,
+              'digest': info.apkDigest,
+            }) ??
+            const {},
+      );
   @override
   Future<Map<String, dynamic>> state() async => Map<String, dynamic>.from(
-      await channel.invokeMapMethod<String, dynamic>('state') ?? const {});
+    await channel.invokeMapMethod<String, dynamic>('state') ?? const {},
+  );
   @override
   Future<String> install() async =>
       await channel.invokeMethod<String>('install') ?? 'failed';

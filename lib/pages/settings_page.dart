@@ -3,22 +3,12 @@ import 'package:flutter/services.dart';
 
 import '../models/app_theme.dart';
 import '../services/notification_service.dart';
-import '../services/canvas_extractor.dart';
+import '../models/common_website.dart';
 import '../state/app_controller.dart';
 import '../widgets/app_update_ui.dart';
 import '../widgets/common_website_grid.dart';
 import 'authenticated_web_page.dart';
 import 'login_page.dart';
-
-const sjtuMapUrl = 'https://map.sjtu.edu.cn/';
-const shuiyuanUrl = 'https://shuiyuan.sjtu.edu.cn/login';
-const heritageSjtuUrl = 'https://share.dyweb.sjtu.cn/';
-const courseCommunityUrl = 'https://course.sjtu.plus/';
-const graduateSchoolUrl =
-    'https://yjs.sjtu.edu.cn/gsapp/sys/emaphome/portal/index.do';
-const sjtuLibraryUrl = 'https://www.lib.sjtu.edu.cn/f/main/index.shtml';
-const sjtuCloudDriveUrl = 'https://pan.sjtu.edu.cn/';
-const sjtuMailUrl = 'https://mail.sjtu.edu.cn/modern/';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.app, this.advanced = false});
@@ -33,10 +23,6 @@ class SettingsPage extends StatefulWidget {
 class SettingsPageState extends State<SettingsPage> {
   AppController get app => widget.app;
   bool get advanced => widget.advanced;
-
-  // TEMPORARY 1.14.22.4 title-color comparison; no persistence.
-  // Remove this field, onTitleTap and useThemeLabelColor together.
-  bool _websiteThemeLabels = false;
 
   final FocusNode _studentNumberFocusNode = FocusNode();
 
@@ -66,6 +52,27 @@ class SettingsPageState extends State<SettingsPage> {
           ),
         ),
       );
+
+  Future<void> _openWebsite(BuildContext context, CommonWebsite site) async {
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => AuthenticatedWebPage(
+        title: site.name,
+        initialUrl: site.url,
+        targetHost: Uri.parse(site.url).host,
+        app: app,
+        preferSsoLogin: site.preferSsoLogin,
+        allowHttpTarget: site.allowHttpTarget,
+        canvasSite: site.canvasSite,
+        librarySite: site.librarySite,
+        mailSite: site.mailSite,
+        authenticationRequired: site.authenticationRequired,
+        enableGeolocation: site.enableGeolocation,
+        ssoFallbackUrl: site.canvasSite ? site.url : '',
+        showCloseButton: true,
+      ),
+    ));
+    if (site.canvasSite) await app.refreshNow();
+  }
 
   String _modeLabel(ReminderMode mode) => switch (mode) {
         ReminderMode.off => '关闭提醒',
@@ -313,224 +320,44 @@ class SettingsPageState extends State<SettingsPage> {
               const SizedBox(height: 22),
               _SettingCard(
                 title: '常用网站',
-                useWebsiteGrid: true,
-                onTitleTap: () =>
-                    setState(() => _websiteThemeLabels = !_websiteThemeLabels),
-                useThemeLabelColor: _websiteThemeLabels,
                 contentPadding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+                onMore: () =>
+                    Navigator.of(context).push(MaterialPageRoute<void>(
+                  builder: (_) => Scaffold(
+                    appBar: AppBar(title: const Text('常用网站')),
+                    body: SafeArea(
+                        child: ListView(
+                      key: const Key('website-full-list'),
+                      padding: const EdgeInsets.all(20),
+                      children: [
+                        _SettingCard(children: [
+                          for (var index = 0;
+                              index < commonWebsites.length;
+                              index++) ...[
+                            if (index > 0) const Divider(height: 1),
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: _SettingIcon(
+                                  icon: commonWebsites[index].icon),
+                              title: Text(commonWebsites[index].name,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700)),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () =>
+                                  _openWebsite(context, commonWebsites[index]),
+                            ),
+                          ],
+                        ])
+                      ],
+                    )),
+                  ),
+                )),
                 children: [
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.language_outlined),
-                    title: const Text(
-                      'Canvas教学平台',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => AuthenticatedWebPage(
-                            title: 'Canvas教学平台',
-                            // This is the same endpoint used by Canvas' jAccount
-                            // card. Starting here avoids mistaking the adjacent
-                            // external-account form for a jAccount login page.
-                            initialUrl: canvasSsoUrl,
-                            targetHost: 'oc.sjtu.edu.cn',
-                            app: app,
-                            canvasSite: true,
-                            ssoFallbackUrl: canvasSsoUrl,
-                            showCloseButton: true,
-                          ),
-                        ),
-                      );
-                      await app.refreshNow();
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(
-                      icon: Icons.local_library_outlined,
-                    ),
-                    title: const Text(
-                      '图书馆',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '图书馆',
-                          initialUrl: sjtuLibraryUrl,
-                          targetHost: 'www.lib.sjtu.edu.cn',
-                          app: app,
-                          allowHttpTarget: true,
-                          librarySite: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.mail_outline),
-                    title: const Text(
-                      '交大邮箱',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '交大邮箱',
-                          initialUrl: sjtuMailUrl,
-                          targetHost: 'mail.sjtu.edu.cn',
-                          app: app,
-                          preferSsoLogin: true,
-                          mailSite: true,
-                          allowHttpTarget: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.cloud_outlined),
-                    title: const Text(
-                      '交大云盘',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '交大云盘',
-                          initialUrl: sjtuCloudDriveUrl,
-                          targetHost: 'pan.sjtu.edu.cn',
-                          app: app,
-                          preferSsoLogin: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.map_outlined),
-                    title: const Text(
-                      '校园地图',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '校园地图',
-                          initialUrl: sjtuMapUrl,
-                          targetHost: 'map.sjtu.edu.cn',
-                          app: app,
-                          authenticationRequired: false,
-                          enableGeolocation: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.forum_outlined),
-                    title: const Text(
-                      '水源社区',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '水源社区',
-                          initialUrl: shuiyuanUrl,
-                          targetHost: 'shuiyuan.sjtu.edu.cn',
-                          app: app,
-                          preferSsoLogin: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.groups_outlined),
-                    title: const Text(
-                      '选课社区',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '选课社区',
-                          initialUrl: courseCommunityUrl,
-                          targetHost: 'course.sjtu.plus',
-                          app: app,
-                          authenticationRequired: false,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(
-                      icon: Icons.auto_stories_outlined,
-                    ),
-                    title: const Text(
-                      '传承·交大',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '传承·交大',
-                          initialUrl: heritageSjtuUrl,
-                          targetHost: 'share.dyweb.sjtu.cn',
-                          app: app,
-                          preferSsoLogin: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const _SettingIcon(icon: Icons.school_outlined),
-                    title: const Text(
-                      '研究生应用管理平台',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AuthenticatedWebPage(
-                          title: '研究生应用管理平台',
-                          initialUrl: graduateSchoolUrl,
-                          targetHost: 'yjs.sjtu.edu.cn',
-                          app: app,
-                          preferSsoLogin: true,
-                          showCloseButton: true,
-                        ),
-                      ),
-                    ),
-                  ),
+                  CommonWebsiteGrid(
+                    entries: commonWebsites,
+                    topPadding: 0,
+                    onOpen: (site) => _openWebsite(context, site),
+                  )
                 ],
               ),
               const SizedBox(height: 22),
@@ -745,20 +572,13 @@ class _SettingCard extends StatelessWidget {
     required this.children,
     this.contentPadding,
     this.titleInset = 0,
-    this.useWebsiteGrid = false,
-    this.onTitleTap,
-    this.useThemeLabelColor = false,
+    this.onMore,
   });
   final String? title;
   final List<Widget> children;
   final EdgeInsetsGeometry? contentPadding;
   final double titleInset;
-  // Set only the websites card to false to restore its original list. The
-  // original ListTiles and navigation callbacks remain the single source.
-  final bool useWebsiteGrid;
-  // TEMPORARY visual-test hooks, used only on the shortcut card.
-  final VoidCallback? onTitleTap;
-  final bool useThemeLabelColor;
+  final VoidCallback? onMore;
   @override
   Widget build(BuildContext context) => Material(
         key: ValueKey('setting-surface-$title'),
@@ -781,9 +601,9 @@ class _SettingCard extends StatelessWidget {
               if (title != null) ...[
                 Padding(
                   padding: EdgeInsets.only(
-                      left: titleInset, bottom: useWebsiteGrid ? 16 : 5),
+                      left: titleInset, bottom: onMore != null ? 16 : 5),
                   child: Row(
-                      crossAxisAlignment: useWebsiteGrid
+                      crossAxisAlignment: onMore != null
                           ? CrossAxisAlignment.baseline
                           : CrossAxisAlignment.center,
                       textBaseline: TextBaseline.alphabetic,
@@ -791,7 +611,6 @@ class _SettingCard extends StatelessWidget {
                         Expanded(
                             child: GestureDetector(
                                 key: ValueKey('setting-heading-$title'),
-                                onTap: onTitleTap,
                                 child: Text(
                                   title!,
                                   style: TextStyle(
@@ -802,7 +621,7 @@ class _SettingCard extends StatelessWidget {
                                         Theme.of(context).colorScheme.primary,
                                   ),
                                 ))),
-                        if (useWebsiteGrid)
+                        if (onMore != null)
                           TextButton(
                             key: const Key('website-more'),
                             style: TextButton.styleFrom(
@@ -810,36 +629,13 @@ class _SettingCard extends StatelessWidget {
                               minimumSize: Size.zero,
                               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                             ),
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                  builder: (_) => Scaffold(
-                                        appBar:
-                                            AppBar(title: const Text('常用网站')),
-                                        body: SafeArea(
-                                            child: ListView(
-                                          key: const Key('website-full-list'),
-                                          padding: const EdgeInsets.all(20),
-                                          children: [
-                                            _SettingCard(children: children)
-                                          ],
-                                        )),
-                                      )),
-                            ),
+                            onPressed: onMore,
                             child: const Text('更多 >'),
                           ),
                       ]),
                 ),
               ],
-              if (useWebsiteGrid)
-                CommonWebsiteGrid(
-                    topPadding: 0,
-                    tiles: children.whereType<ListTile>().toList(),
-                    useThemeLabelColor: useThemeLabelColor,
-                    iconForTile: (tile) => tile.leading is _SettingIcon
-                        ? (tile.leading as _SettingIcon).icon
-                        : null)
-              else
-                ...children,
+              ...children,
             ],
           ),
         ),

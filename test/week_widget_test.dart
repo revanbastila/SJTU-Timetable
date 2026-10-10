@@ -1,3 +1,5 @@
+import 'support/memory_database.dart';
+import 'package:jiaotong_course/models/common_website.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,7 +30,7 @@ void main() {
   testWidgets('dark interface mode applies the layered dark theme', (
     tester,
   ) async {
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..interfaceMode = InterfaceMode.dark;
     await tester.pumpWidget(JiaotongCourseApp(app: app));
     final loginContext = tester.element(find.byType(LoginPage));
@@ -56,7 +58,7 @@ void main() {
   testWidgets('login title icon and input outline follow the selected theme', (
     tester,
   ) async {
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..themeChoice = AppThemeChoice.slateRose;
     await tester.pumpWidget(JiaotongCourseApp(app: app));
 
@@ -79,7 +81,7 @@ void main() {
   testWidgets('light schedule header uses theme colors and jAccount username', (
     tester,
   ) async {
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..username = 'account-id'
       ..studentName = '杨惠泽';
     final primary = AppThemeChoice.sjtuBlue.primary;
@@ -214,7 +216,8 @@ void main() {
   testWidgets('interface mode labels use a shared right-aligned width', (
     tester,
   ) async {
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(body: SettingsPage(app: app, advanced: true)),
@@ -248,7 +251,8 @@ void main() {
   testWidgets('featured card follows theme and dots cycle from none', (
     tester,
   ) async {
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     final now = DateTime.now();
     app.termStart = DateTime(
       now.year,
@@ -396,7 +400,8 @@ void main() {
   testWidgets('course detail tab content area is white in light mode', (
     tester,
   ) async {
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     final course = Course.fromMap({'name': '测试课程'});
     app.courses = [course];
     await tester.pumpWidget(
@@ -422,7 +427,8 @@ void main() {
     tester,
   ) async {
     final choice = AppThemeChoice.sjtuRed;
-    final app = AppController(NotificationService())..themeChoice = choice;
+    final app = AppController(NotificationService(), database: MemoryDatabase())
+      ..themeChoice = choice;
     final course = Course.fromMap({
       'name': '测试课程',
       'weekday': 1,
@@ -482,7 +488,7 @@ void main() {
   testWidgets('course detail metadata follows the selected app theme', (
     tester,
   ) async {
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..themeChoice = AppThemeChoice.mutedViolet;
     final course = Course.fromMap({
       'name': '刑事程序法',
@@ -518,7 +524,8 @@ void main() {
   testWidgets('manual Canvas picker lists cached candidate courses', (
     tester,
   ) async {
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     final course = Course.fromMap({
       'name': '人工智能法学专题',
       'courseCode': 'LAW7001',
@@ -557,7 +564,8 @@ void main() {
   });
 
   testWidgets('week selector marks the current academic week', (tester) async {
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     final currentWeek = app.currentAcademicWeekInTerm;
     await tester.pumpWidget(
       MaterialApp(
@@ -589,7 +597,8 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     app.courses = [
       Course.fromMap({
         'name': '算法课程(LAW6001-19000-X01)',
@@ -686,7 +695,8 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(360, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     app.courses = [
       Course.fromMap({
         'name': '高级人工智能系统设计',
@@ -734,7 +744,8 @@ void main() {
         'location': '新上院 N100',
       }, index: 1),
     ];
-    final app = AppController(NotificationService())..courses = courses;
+    final app = AppController(NotificationService(), database: MemoryDatabase())
+      ..courses = courses;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(body: WeekPage(app: app)),
@@ -764,7 +775,8 @@ void main() {
     app.dispose();
   });
   testWidgets('login exposes jAccount and remember choice', (tester) async {
-    final app = AppController(NotificationService());
+    final app =
+        AppController(NotificationService(), database: MemoryDatabase());
     await tester.pumpWidget(MaterialApp(home: LoginPage(app: app)));
     expect(find.text('jAccount账号'), findsOneWidget);
     expect(find.text('记住本人'), findsOneWidget);
@@ -783,7 +795,8 @@ void main() {
   testWidgets('my page keeps websites and moves settings behind the gear', (
     tester,
   ) async {
-    final app = AppController(NotificationService())..username = 'student';
+    final app = AppController(NotificationService(), database: MemoryDatabase())
+      ..username = 'student';
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(body: SettingsPage(app: app)),

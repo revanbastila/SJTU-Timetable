@@ -1,3 +1,4 @@
+import 'support/memory_database.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -77,7 +78,8 @@ void main() {
     final app = AppController(RecordingReminders(),
         calendarClock: () => DateTime(2030, 1, 21),
         calendarRepository: TeachingCalendarRepository(
-            fetch: () async => throw const SocketException('offline')));
+            fetch: () async => throw const SocketException('offline')),
+        database: MemoryDatabase());
     await app.bootstrap();
     expect(app.termStart, DateTime(2030, 1, 7));
     expect(app.totalWeeks, 3);
@@ -204,7 +206,8 @@ void main() {
     final app = AppController(reminders,
         calendarClock: () => now,
         calendarRepository:
-            TeachingCalendarRepository(fetch: () async => remote))
+            TeachingCalendarRepository(fetch: () async => remote),
+        database: MemoryDatabase())
       ..termStart = DateTime(2026, 9, 14)
       ..totalWeeks = 18
       ..loggedIn = true
@@ -223,7 +226,6 @@ void main() {
         hasLength(1));
     expect(app.getEffectiveCoursesForDate(DateTime(2030, 1, 14)), isEmpty);
     expect(app.getEffectiveCoursesForDate(DateTime(2030, 1, 26)), hasLength(1));
-    await app.setTerm(DateTime(2035, 1, 1), 22);
     expect(app.termStart, DateTime(2030, 1, 7));
     remote = sample(first: '2030-01-14', weeks: 2, exams: [2]);
     await app.refreshTeachingCalendar();
@@ -269,7 +271,7 @@ void main() {
   test('widget receives remote term and exact dated week/course results',
       () async {
     final app = AppController(NotificationService(),
-        calendarClock: () => DateTime(2030, 1, 21))
+        calendarClock: () => DateTime(2030, 1, 21), database: MemoryDatabase())
       ..teachingCalendar = TeachingCalendar.parse(sample())
       ..courses = [
         lesson('Monday', 1, [1, 2, 3])
@@ -287,15 +289,13 @@ void main() {
     final bridge = TimetableWidgetBridge()..attach(app);
     await bridge.syncNow();
     bridge.detach();
-    expect(snapshot!['termStart'], '2030-01-07');
-    expect(snapshot!['totalWeeks'], 3);
-    expect(snapshot!['academicYear'], '2029-2030');
-    expect(snapshot!['semesterEnd'], '2030-01-27');
     final days = snapshot!['effectiveDays'] as Map;
+    final catalog = snapshot!['courses'] as List;
+    expect(snapshot!['schema'], 3);
     expect(days['2030-01-21']['academicWeek'], 3);
-    expect(days['2030-01-21']['courses'].single['name'], 'Monday');
-    expect(days['2030-01-14']['courses'], isEmpty);
-    expect(days['2030-01-26']['courses'].single['name'], 'Monday');
+    expect(catalog[days['2030-01-21']['courseRefs'].single]['name'], 'Monday');
+    expect(days['2030-01-14']['courseRefs'], isEmpty);
+    expect(catalog[days['2030-01-26']['courseRefs'].single]['name'], 'Monday');
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, null);
     app.dispose();
@@ -305,7 +305,7 @@ void main() {
       'semester editing UI is removed while remote metadata remains active',
       (tester) async {
     final app = AppController(NotificationService(),
-        calendarClock: () => DateTime(2030, 1, 21))
+        calendarClock: () => DateTime(2030, 1, 21), database: MemoryDatabase())
       ..teachingCalendar = TeachingCalendar.parse(sample());
     await tester.pumpWidget(MaterialApp(
         home: Scaffold(body: SettingsPage(app: app, advanced: true))));
@@ -324,7 +324,8 @@ void main() {
       'exam/current columns align and use the same existing marker style',
       (tester) async {
     var date = DateTime(2030, 1, 21);
-    final app = AppController(NotificationService(), calendarClock: () => date)
+    final app = AppController(NotificationService(),
+        calendarClock: () => date, database: MemoryDatabase())
       ..teachingCalendar = TeachingCalendar.parse(sample())
       ..selectedWeek = 3;
     await tester

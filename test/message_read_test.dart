@@ -1,3 +1,4 @@
+import 'support/memory_database.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiaotong_course/models/canvas_data.dart';
 import 'package:jiaotong_course/services/message_feed.dart';
@@ -44,7 +45,7 @@ void main() {
         dashboardItems: const [earlier],
         courses: const [],
         syncedAt: DateTime(2026, 9, 20));
-    final app = AppController(NotificationService())
+    final app = AppController(NotificationService(), database: MemoryDatabase())
       ..canvas = oldSnapshot
       ..courses = [];
     await app.bootstrap();
@@ -65,9 +66,10 @@ void main() {
     await app.markMessageRead(latest.key);
     expect(app.unreadMessageCount, 0);
 
-    final restarted = AppController(NotificationService())
-      ..canvas = updated
-      ..courses = [];
+    final restarted =
+        AppController(NotificationService(), database: MemoryDatabase())
+          ..canvas = updated
+          ..courses = [];
     await restarted.bootstrap();
     expect(restarted.unreadMessageCount, 0);
     app.dispose();
@@ -96,14 +98,15 @@ void main() {
         htmlUrl: '',
       ),
     ];
-    AppController controller() => AppController(NotificationService())
-      ..username = 'message-test'
-      ..courses = []
-      ..canvas = CanvasSnapshot(
-        dashboardItems: items,
-        courses: const [],
-        syncedAt: DateTime(2026, 9, 20),
-      );
+    AppController controller() =>
+        AppController(NotificationService(), database: MemoryDatabase())
+          ..username = 'message-test'
+          ..courses = []
+          ..canvas = CanvasSnapshot(
+            dashboardItems: items,
+            courses: const [],
+            syncedAt: DateTime(2026, 9, 20),
+          );
 
     final app = controller();
     final feed = buildMessageFeed(app.canvas, app.courses);
