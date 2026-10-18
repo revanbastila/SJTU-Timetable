@@ -18,7 +18,7 @@ extension InterfaceModeStyle on InterfaceMode {
   String get label => switch (this) {
         InterfaceMode.light => '浅色',
         InterfaceMode.dark => '深色',
-        InterfaceMode.system => '跟随系统',
+        InterfaceMode.system => '系统',
       };
 
   ThemeMode get themeMode => switch (this) {

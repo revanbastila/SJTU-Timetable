@@ -7,6 +7,7 @@ import 'package:jiaotong_course/main.dart';
 import 'package:jiaotong_course/models/app_theme.dart';
 import 'package:jiaotong_course/models/canvas_data.dart';
 import 'package:jiaotong_course/models/course.dart';
+import 'package:jiaotong_course/models/teaching_calendar.dart';
 import 'package:jiaotong_course/pages/course_detail_page.dart';
 import 'package:jiaotong_course/pages/home_page.dart';
 import 'package:jiaotong_course/pages/home_shell.dart';
@@ -231,16 +232,16 @@ void main() {
       everyElement(76),
     );
     expect(button.alignment, AlignmentDirectional.centerEnd);
-    expect(InterfaceMode.system.label, '跟随系统');
+    expect(InterfaceMode.system.label, '系统');
     expect(InterfaceMode.light.label, '浅色');
     expect(InterfaceMode.dark.label, '深色');
     await tester.tap(dropdown);
     await tester.pumpAndSettle();
-    for (final label in ['浅色', '深色', '跟随系统']) {
+    for (final label in ['浅色', '深色', '系统']) {
       expect(find.text(label), findsWidgets);
     }
     final optionRects = [
-      for (final label in ['浅色', '深色', '跟随系统'])
+      for (final label in ['浅色', '深色', '系统'])
         tester.getRect(find.text(label).last),
     ];
     expect((optionRects[0].right - optionRects[1].right).abs(), lessThan(1));
@@ -253,7 +254,7 @@ void main() {
   ) async {
     final app =
         AppController(NotificationService(), database: MemoryDatabase());
-    final now = DateTime.now();
+    final now = shanghaiNow();
     app.termStart = DateTime(
       now.year,
       now.month,
@@ -621,13 +622,8 @@ void main() {
         home: Scaffold(body: WeekPage(app: app)),
       ),
     );
-    final syncButton = tester.widget<IconButton>(
-      find.ancestor(
-        of: find.byIcon(Icons.sync_rounded),
-        matching: find.byType(IconButton),
-      ),
-    );
-    expect(syncButton.color, AppThemeChoice.sjtuBlue.primary);
+    expect(find.byIcon(Icons.sync_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.event_repeat_rounded), findsOneWidget);
     final weekPicker = tester.widget<DropdownButton<int>>(
       find.byType(DropdownButton<int>),
     );

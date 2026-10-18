@@ -265,7 +265,7 @@ void main() {
   testWidgets(
       'holiday UI suppresses current/upcoming cards and marks week header',
       (tester) async {
-    final now = DateTime.now();
+    final now = shanghaiNow();
     final monday = DateTime(now.year, now.month, now.day - now.weekday + 1);
     final course = lesson('Must not display', now.weekday, [1]);
     final app = AppController(NotificationService(), database: MemoryDatabase())

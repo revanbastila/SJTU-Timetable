@@ -4,6 +4,10 @@ $workspaceRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 $taskWork = Join-Path $workspaceRoot 'work'
 $localFlutter = Join-Path $taskWork 'flutter'
 $localAndroidSdk = Join-Path $taskWork 'android-sdk'
+if (-not (Test-Path -LiteralPath $localAndroidSdk) -and
+    $env:ANDROID_HOME -and (Test-Path -LiteralPath $env:ANDROID_HOME)) {
+    $localAndroidSdk = $env:ANDROID_HOME
+}
 
 foreach ($directory in @(
     'temp', 'flutter_appdata', 'pub-cache', 'gradle-home',

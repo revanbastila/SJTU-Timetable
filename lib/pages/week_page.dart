@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -5,6 +7,7 @@ import '../models/app_theme.dart';
 import '../models/course.dart';
 import '../models/teaching_calendar.dart';
 import '../models/periods.dart';
+import '../models/semester_timetable.dart';
 import '../models/week_rules.dart';
 import '../state/app_controller.dart';
 import 'course_detail_page.dart';
@@ -27,23 +30,27 @@ class WeekPage extends StatelessWidget {
         animation: app,
         builder: (context, _) {
           final currentWeek = app.currentAcademicWeekInTerm;
+          final dynamicDisplay = app.dynamicWeekDisplay;
           final markerStyle = TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.primary);
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Theme.of(context).colorScheme.primary,
+          );
           double textWidth(String value, TextStyle style) {
             final painter = TextPainter(
-                text: TextSpan(text: value, style: style),
-                textDirection: Directionality.of(context),
-                textScaler: MediaQuery.textScalerOf(context))
-              ..layout();
+              text: TextSpan(text: value, style: style),
+              textDirection: Directionality.of(context),
+              textScaler: MediaQuery.textScalerOf(context),
+            )..layout();
             final width = painter.width;
             painter.dispose();
             return width;
           }
 
-          final numberWidth = textWidth('第 ${app.totalWeeks} 周',
-              const TextStyle(fontSize: 19, fontWeight: FontWeight.w800));
+          final numberWidth = textWidth(
+            '第 ${app.totalWeeks} 周',
+            const TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+          );
           final examWidth = textWidth('（考试周）', markerStyle);
           final currentWidth = textWidth('（本周）', markerStyle);
           final screenWidth = MediaQuery.sizeOf(context).width > 0
@@ -52,152 +59,253 @@ class WeekPage extends StatelessWidget {
                   View.of(context).devicePixelRatio;
           final monday = mondayForAcademicWeek(app.termStart, app.selectedWeek);
           final sunday = monday.add(const Duration(days: 6));
-          final visible = app
-              .effectiveCoursesForWeek(app.selectedWeek)
-              .where((course) => course.hasSchedule)
-              .toList();
+          final visible = dynamicDisplay
+              ? app
+                  .effectiveCoursesForWeek(app.selectedWeek)
+                  .where((course) => course.hasSchedule)
+                  .toList()
+              : semesterTimetableCourses(app.courses);
           return SafeArea(
-            child: Column(children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 10, 8, 8),
-                child: Row(children: [
-                  DropdownButtonHideUnderline(
-                    // selectedItemBuilder retains the original closed header.
-                    child: DropdownButton<int>(
-                      value: app.selectedWeek,
-                      icon: Icon(
-                        Icons.arrow_drop_down_rounded,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      borderRadius: BorderRadius.circular(10),
-                      menuWidth: (numberWidth + examWidth + currentWidth + 42)
-                          .clamp(0.0, screenWidth - 24),
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
-                      ),
-                      selectedItemBuilder: (context) => [
-                        for (var week = 1; week <= app.totalWeeks; week++)
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text('第 $week 周'),
+            child: Column(
+              children: [
+                if (dynamicDisplay)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 8, 8),
+                    child: MediaQuery.withClampedTextScaling(
+                      maxScaleFactor: 1.5,
+                      child: Row(children: [
+                        DropdownButtonHideUnderline(
+                          // selectedItemBuilder retains the original closed header.
+                          child: DropdownButton<int>(
+                            value: app.selectedWeek,
+                            icon: Icon(
+                              Icons.arrow_drop_down_rounded,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                            menuWidth:
+                                (numberWidth + examWidth + currentWidth + 42)
+                                    .clamp(0.0, screenWidth - 24),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.primary,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w800,
+                            ),
+                            selectedItemBuilder: (context) => [
+                              for (var week = 1; week <= app.totalWeeks; week++)
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text('第 $week 周'),
+                                ),
+                            ],
+                            items: [
+                              for (var week = 1; week <= app.totalWeeks; week++)
+                                DropdownMenuItem(
+                                  value: week,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                          width: numberWidth,
+                                          child: Text('第 $week 周')),
+                                      const SizedBox(width: 5),
+                                      // Stable columns even without either marker.
+                                      SizedBox(
+                                          width: examWidth,
+                                          child: app.examWeeks.contains(week)
+                                              ? Text('（考试周）',
+                                                  key: ValueKey(
+                                                      'week-exam-$week'),
+                                                  style: markerStyle)
+                                              : null),
+                                      const SizedBox(width: 5),
+                                      SizedBox(
+                                          width: currentWidth,
+                                          child: currentWeek == week
+                                              ? Text('（本周）',
+                                                  key: ValueKey(
+                                                      'week-current-$week'),
+                                                  style: markerStyle)
+                                              : null),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                            onChanged: (value) {
+                              if (value != null) {
+                                app.selectWeek(value);
+                              }
+                            },
                           ),
-                      ],
-                      items: [
-                        for (var week = 1; week <= app.totalWeeks; week++)
-                          DropdownMenuItem(
-                            value: week,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                    width: numberWidth,
-                                    child: Text('第 $week 周')),
-                                const SizedBox(width: 5),
-                                // Stable columns even without either marker.
-                                SizedBox(
-                                    width: examWidth,
-                                    child: app.examWeeks.contains(week)
-                                        ? Text('（考试周）',
-                                            key: ValueKey('week-exam-$week'),
-                                            style: markerStyle)
-                                        : null),
-                                const SizedBox(width: 5),
-                                SizedBox(
-                                    width: currentWidth,
-                                    child: currentWeek == week
-                                        ? Text('（本周）',
-                                            key: ValueKey('week-current-$week'),
-                                            style: markerStyle)
-                                        : null),
-                              ],
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            '${DateFormat('M.d').format(monday)}–${DateFormat('M.d').format(sunday)}',
+                            key: const Key('week-date-range'),
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: Theme.of(context).colorScheme.primary),
+                          ),
+                        ),
+                        if (currentWeek == null)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: Text(
+                              app.currentTermStatus,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
-                      ],
-                      onChanged: (value) {
-                        if (value != null) app.selectWeek(value);
-                      },
+                        if (currentWeek == app.selectedWeek)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 4),
+                            child: Text(
+                              '本周',
+                              key: const Key('week-current-marker'),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        IconButton(
+                          tooltip: '同步教务与 Canvas',
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => PortalSyncPage(
+                                username: app.username,
+                                password: '',
+                                app: app,
+                                rememberMe: app.rememberMe,
+                              ),
+                            ),
+                          ),
+                          color: app.themeChoice
+                              .primaryFor(Theme.of(context).brightness),
+                          icon: const Icon(Icons.sync_rounded),
+                        ),
+                      ]),
                     ),
+                  )
+                else
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 8, 8),
+                    child: Row(children: [
+                      Expanded(
+                          child: Text('学期课表',
+                              key: const Key('semester-timetable-title'),
+                              style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w800,
+                                  color:
+                                      Theme.of(context).colorScheme.primary))),
+                      IconButton(
+                        tooltip: '同步教务与 Canvas',
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => PortalSyncPage(
+                              username: app.username,
+                              password: '',
+                              app: app,
+                              rememberMe: app.rememberMe,
+                            ),
+                          ),
+                        ),
+                        color: app.themeChoice
+                            .primaryFor(Theme.of(context).brightness),
+                        icon: const Icon(Icons.sync_rounded),
+                      ),
+                    ]),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      '${DateFormat('M.d').format(monday)}–${DateFormat('M.d').format(sunday)}',
-                      key: const Key('week-date-range'),
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: Theme.of(context).colorScheme.primary),
-                    ),
-                  ),
-                  if (currentWeek == null)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 4),
-                      child: Text(
-                        app.currentTermStatus,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          fontWeight: FontWeight.w700,
+                Expanded(
+                  child: Stack(
+                    key: const Key('week-timetable-area'),
+                    children: [
+                      Positioned.fill(
+                          child: LayoutBuilder(
+                        builder: (context, constraints) => _Timetable(
+                          courses: visible,
+                          showWeeks: !dynamicDisplay,
+                          dayLabels: !dynamicDisplay
+                              ? List<String?>.filled(7, null)
+                              : [
+                                  for (var day = 0; day < 7; day++)
+                                    app.teachingCalendar
+                                        .ruleFor(
+                                          DateTime(
+                                            monday.year,
+                                            monday.month,
+                                            monday.day + day,
+                                          ),
+                                        )
+                                        ?.label,
+                                ],
+                          viewportWidth: constraints.maxWidth,
+                          todayWeekday: dynamicDisplay &&
+                                  currentWeek == app.selectedWeek
+                              ? weekdayInDisplayedWeek(shanghaiNow(), monday)
+                              : null,
+                          colorFor: (course) =>
+                              Color(app.courseColorValue(course)),
+                          onCourseTap: (course) => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  CourseDetailPage(app: app, course: course),
+                            ),
+                          ),
+                        ),
+                      )),
+                      Positioned(
+                        right: 12,
+                        bottom: 12,
+                        child: Semantics(
+                          label: dynamicDisplay ? '动态课表' : '静态课表',
+                          button: true,
+                          child: Material(
+                            key: const Key('week-display-floating-surface'),
+                            elevation: 4,
+                            shadowColor: Theme.of(context)
+                                .colorScheme
+                                .shadow
+                                .withValues(alpha: .24),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerLow,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                                side: BorderSide(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .outlineVariant)),
+                            clipBehavior: Clip.antiAlias,
+                            child: IconButton(
+                              key: const Key('week-display-switch'),
+                              tooltip: dynamicDisplay ? '切换为静态课表' : '切换为动态课表',
+                              onPressed: () =>
+                                  app.setDynamicWeekDisplay(!dynamicDisplay),
+                              constraints: const BoxConstraints.tightFor(
+                                  width: 48, height: 48),
+                              iconSize: 24,
+                              color: Theme.of(context).colorScheme.primary,
+                              icon: Icon(dynamicDisplay
+                                  ? Icons.event_repeat_rounded
+                                  : Icons.grid_view_rounded),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  if (currentWeek == app.selectedWeek)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 4),
-                      child: Text(
-                        '本周',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                  IconButton(
-                    tooltip: '同步教务与 Canvas',
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => PortalSyncPage(
-                          username: app.username,
-                          password: '',
-                          app: app,
-                          rememberMe: app.rememberMe,
-                        ),
-                      ),
-                    ),
-                    color: app.themeChoice
-                        .primaryFor(Theme.of(context).brightness),
-                    icon: const Icon(Icons.sync_rounded),
-                  ),
-                ]),
-              ),
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (context, constraints) => _Timetable(
-                    courses: visible,
-                    dayLabels: [
-                      for (var day = 0; day < 7; day++)
-                        app.teachingCalendar
-                            .ruleFor(DateTime(
-                                monday.year, monday.month, monday.day + day))
-                            ?.label
                     ],
-                    viewportWidth: constraints.maxWidth,
-                    todayWeekday: currentWeek == app.selectedWeek
-                        ? weekdayInDisplayedWeek(shanghaiNow(), monday)
-                        : null,
-                    colorFor: (course) => Color(app.courseColorValue(course)),
-                    onCourseTap: (course) => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            CourseDetailPage(app: app, course: course),
-                      ),
-                    ),
                   ),
                 ),
-              ),
-            ]),
+              ],
+            ),
           );
         },
       );
@@ -206,6 +314,7 @@ class WeekPage extends StatelessWidget {
 class _Timetable extends StatefulWidget {
   const _Timetable({
     required this.courses,
+    required this.showWeeks,
     required this.dayLabels,
     required this.todayWeekday,
     required this.viewportWidth,
@@ -213,6 +322,7 @@ class _Timetable extends StatefulWidget {
     required this.onCourseTap,
   });
   final List<Course> courses;
+  final bool showWeeks;
   final List<String?> dayLabels;
   final int? todayWeekday;
   final double viewportWidth;
@@ -242,156 +352,200 @@ class _TimetableState extends State<_Timetable> {
 
   @override
   Widget build(BuildContext context) {
-    final dayWidth = (viewportWidth - gutter) / 5;
+    final baseDayWidth = (viewportWidth - gutter) / 5;
+    final laneCount = widget.showWeeks
+        ? courses.fold<int>(
+            1,
+            (count, course) => math.max(count, _laneFor(course).count),
+          )
+        : 1;
+    final dayWidth = widget.showWeeks
+        ? math.max(baseDayWidth, 56.0 * laneCount)
+        : baseDayWidth;
     final gridHeight = periodStarts.length * rowHeight;
     final scheme = Theme.of(context).colorScheme;
     // `outlineVariant` is generated from the selected theme in the app theme
     // factory; keep the grid on the same low-saturation accent in both modes.
     final gridLine = scheme.outlineVariant;
     final table = SingleChildScrollView(
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SizedBox(
-          width: gutter,
-          child: Column(children: [
-            Container(
-              height: headerHeight,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerLowest,
-                border: Border(
-                  right: BorderSide(color: gridLine),
-                  bottom: BorderSide(color: gridLine),
-                ),
-              ),
-              child: Text('节次',
-                  style:
-                      TextStyle(fontSize: 12, color: scheme.onSurfaceVariant)),
-            ),
-            for (var i = 0; i < periodStarts.length; i++)
-              Container(
-                height: rowHeight,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerLowest,
-                  border: Border(
-                    right: BorderSide(color: gridLine),
-                    bottom: BorderSide(color: gridLine),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: gutter,
+            child: Column(
+              children: [
+                Container(
+                  height: headerHeight,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerLowest,
+                    border: Border(
+                      right: BorderSide(color: gridLine),
+                      bottom: BorderSide(color: gridLine),
+                    ),
+                  ),
+                  child: Text(
+                    '节次',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
-                child: MediaQuery.withClampedTextScaling(
-                  maxScaleFactor: 1,
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Text('${i + 1}',
-                        style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: scheme.onSurface)),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${clockLabel(periodStarts[i])}\n${clockLabel(periodEnds[i])}',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 8.5,
-                        height: 1.08,
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ]),
-                ),
-              ),
-          ]),
-        ),
-        Expanded(
-          child: SingleChildScrollView(
-            controller: _horizontalController,
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: dayWidth * 7,
-              child: Column(children: [
-                Row(children: [
-                  for (var day = 1; day <= 7; day++)
-                    _dayHeader(day, dayWidth, scheme, gridLine),
-                ]),
-                SizedBox(
-                  height: gridHeight,
-                  child: Stack(children: [
-                    Column(children: [
-                      for (var period = 0;
-                          period < periodStarts.length;
-                          period++)
-                        Row(children: [
-                          for (var day = 0; day < 7; day++)
-                            Container(
-                              width: dayWidth,
-                              height: rowHeight,
-                              decoration: BoxDecoration(
-                                color: scheme.surfaceContainerLowest,
-                                border: Border(
-                                  right: BorderSide(color: gridLine),
-                                  bottom: BorderSide(color: gridLine),
-                                ),
-                              ),
-                            ),
-                        ]),
-                    ]),
-                    for (final course in courses.where((course) =>
-                        course.firstPeriod > 0 &&
-                        course.lastPeriod >= course.firstPeriod))
-                      _positionedCourse(course, dayWidth),
-                  ]),
-                ),
-              ]),
-            ),
-          ),
-        ),
-      ]),
-    );
-    return Stack(children: [
-      Positioned.fill(child: table),
-      Positioned(
-        bottom: 2,
-        left: 0,
-        right: 0,
-        child: IgnorePointer(
-          child: Semantics(
-            label: '左右滑动查看周六和周日',
-            child: Center(
-              child: AnimatedBuilder(
-                animation: _horizontalController,
-                builder: (context, _) {
-                  final position = _horizontalController.hasClients
-                      ? _horizontalController.position
-                      : null;
-                  final fraction = position != null &&
-                          position.hasContentDimensions &&
-                          position.maxScrollExtent > 0
-                      ? (position.pixels / position.maxScrollExtent)
-                          .clamp(0.0, 1.0)
-                      : 0.0;
-                  return Container(
-                    key: const Key('week-scroll-hint'),
-                    width: 72,
-                    height: 3,
-                    clipBehavior: Clip.antiAlias,
+                for (var i = 0; i < periodStarts.length; i++)
+                  Container(
+                    height: rowHeight,
+                    alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      color: scheme.outlineVariant.withValues(alpha: 0.55),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                    child: Align(
-                      alignment: Alignment(-1 + fraction * 2, 0),
-                      child: Container(
-                        width: 72 * 5 / 7,
-                        color: scheme.primary.withValues(alpha: 0.5),
+                      color: scheme.surfaceContainerLowest,
+                      border: Border(
+                        right: BorderSide(color: gridLine),
+                        bottom: BorderSide(color: gridLine),
                       ),
                     ),
-                  );
-                },
+                    child: MediaQuery.withClampedTextScaling(
+                      maxScaleFactor: 1,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${i + 1}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: scheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            '${clockLabel(periodStarts[i])}\n${clockLabel(periodEnds[i])}',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 8.5,
+                              height: 1.08,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _horizontalController,
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: dayWidth * 7,
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        for (var day = 1; day <= 7; day++)
+                          _dayHeader(day, dayWidth, scheme, gridLine),
+                      ],
+                    ),
+                    SizedBox(
+                      height: gridHeight,
+                      child: Stack(
+                        children: [
+                          Column(
+                            children: [
+                              for (var period = 0;
+                                  period < periodStarts.length;
+                                  period++)
+                                Row(
+                                  children: [
+                                    for (var day = 0; day < 7; day++)
+                                      Container(
+                                        width: dayWidth,
+                                        height: rowHeight,
+                                        decoration: BoxDecoration(
+                                          color: scheme.surfaceContainerLowest,
+                                          border: Border(
+                                            right: BorderSide(color: gridLine),
+                                            bottom: BorderSide(color: gridLine),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                            ],
+                          ),
+                          for (final course in courses.where(
+                            (course) =>
+                                course.firstPeriod > 0 &&
+                                course.lastPeriod >= course.firstPeriod,
+                          ))
+                            _positionedCourse(course, dayWidth),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    return Stack(
+      children: [
+        Positioned.fill(child: table),
+        Positioned(
+          bottom: 2,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
+            child: Semantics(
+              label: '左右滑动查看周六和周日',
+              child: Center(
+                child: AnimatedBuilder(
+                  animation: _horizontalController,
+                  builder: (context, _) {
+                    final position = _horizontalController.hasClients
+                        ? _horizontalController.position
+                        : null;
+                    final fraction = position != null &&
+                            position.hasContentDimensions &&
+                            position.maxScrollExtent > 0
+                        ? (position.pixels / position.maxScrollExtent).clamp(
+                            0.0,
+                            1.0,
+                          )
+                        : 0.0;
+                    return Container(
+                      key: const Key('week-scroll-hint'),
+                      width: 72,
+                      height: 3,
+                      clipBehavior: Clip.antiAlias,
+                      decoration: BoxDecoration(
+                        color: scheme.outlineVariant.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                      child: Align(
+                        alignment: Alignment(-1 + fraction * 2, 0),
+                        child: Container(
+                          width: 72 *
+                              ((viewportWidth - gutter) / (dayWidth * 7)).clamp(
+                                0.0,
+                                1.0,
+                              ),
+                          color: scheme.primary.withValues(alpha: 0.5),
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),
         ),
-      ),
-    ]);
+      ],
+    );
   }
 
   Widget _dayHeader(
@@ -438,11 +592,7 @@ class _TimetableState extends State<_Timetable> {
                 label,
                 key: ValueKey('week-header-label-$day'),
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 8.5,
-                  height: 1,
-                  color: color,
-                ),
+                style: TextStyle(fontSize: 8.5, height: 1, color: color),
               ),
             ),
         ],
@@ -484,47 +634,63 @@ class _TimetableState extends State<_Timetable> {
                 final blankLines = (4 - nameLines).clamp(0, 3);
                 final titleLineHeight =
                     (nameStyle.fontSize ?? 10.5) * (nameStyle.height ?? 1);
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(6, 5, 5, 3),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        course.name,
-                        key: ValueKey('course-name-${course.id}'),
-                        softWrap: true,
-                        style: nameStyle,
-                      ),
+                final content = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      course.name,
+                      key: ValueKey('course-name-${course.id}'),
+                      softWrap: true,
+                      style: nameStyle,
+                    ),
+                    if (!widget.showWeeks)
                       SizedBox(
                         key: ValueKey('course-title-space-${course.id}'),
                         height: blankLines * titleLineHeight,
                       ),
-                      if (course.location.isNotEmpty) ...[
-                        SizedBox(height: compact ? 2 : 4),
-                        Text(
-                          _locationLines(course.location),
-                          softWrap: true,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: compact ? 8.2 : 9,
-                            height: 1.1,
-                          ),
+                    if (course.location.isNotEmpty) ...[
+                      SizedBox(height: compact ? 2 : 4),
+                      Text(
+                        _locationLines(course.location),
+                        softWrap: true,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: compact ? 8.2 : 9,
+                          height: 1.1,
                         ),
-                      ],
-                      if (course.teacher.isNotEmpty) ...[
-                        SizedBox(height: compact ? 2 : 4),
-                        Text(
-                          _teacherLines(course.teacher),
-                          softWrap: true,
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: compact ? 8.2 : 9,
-                            height: 1.1,
-                          ),
-                        ),
-                      ],
+                      ),
                     ],
-                  ),
+                    if (course.teacher.isNotEmpty) ...[
+                      SizedBox(height: compact ? 2 : 4),
+                      Text(
+                        _teacherLines(course.teacher),
+                        softWrap: true,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: compact ? 8.2 : 9,
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
+                    if (widget.showWeeks) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        semesterCourseWeeks(course),
+                        key: ValueKey('course-weeks-${course.id}'),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: compact ? 8.2 : 9,
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(6, 5, 5, 3),
+                  child: widget.showWeeks
+                      ? SingleChildScrollView(child: content)
+                      : content,
                 );
               },
             ),
@@ -573,8 +739,11 @@ class _TimetableState extends State<_Timetable> {
         return time != 0 ? time : a.id.compareTo(b.id);
       });
     return (
-      index: overlaps.indexWhere((item) => item.id == course.id),
-      count: overlaps.length
+      index: overlaps.indexWhere(
+        (item) =>
+            widget.showWeeks ? identical(item, course) : item.id == course.id,
+      ),
+      count: overlaps.length,
     );
   }
 }

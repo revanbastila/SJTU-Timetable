@@ -10,7 +10,7 @@ android {
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
-        applicationId = "cn.sjtu.jiaotong_course.slimtest"
+        applicationId = "cn.sjtu.jiaotong_course.slimtest.a"
         minSdkVersion = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

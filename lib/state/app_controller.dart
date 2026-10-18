@@ -96,6 +96,7 @@ class AppController extends ChangeNotifier {
   set totalWeeks(int value) => _fallbackTotalWeeks = value;
   List<int> get examWeeks => currentSemester?.examWeeks ?? const [];
   int selectedWeek = 1;
+  bool dynamicWeekDisplay = true;
   Timer? _timer;
   Future<void>? _logoutCleanup;
   Future<void>? _activeRefresh;
@@ -453,6 +454,7 @@ class AppController extends ChangeNotifier {
         debugPrint('Secure credential restore failed: $error\n$stack');
       }
     }
+    dynamicWeekDisplay = prefs.getBool('dynamicWeekDisplay') ?? true;
     refreshMinutes = prefs.getInt('refreshMinutes') ?? 30;
     reminderMinutes = (prefs.getInt('reminderMinutes') ?? 15).clamp(1, 120);
     themeChoice = AppThemeChoiceStyle.fromStorage(
@@ -835,6 +837,17 @@ class AppController extends ChangeNotifier {
     ];
     await _persistCourses();
     notifyListeners();
+  }
+
+  Future<void> setDynamicWeekDisplay(bool value) async {
+    if (dynamicWeekDisplay == value) return;
+    dynamicWeekDisplay = value;
+    if (value) {
+      selectedWeek = currentAcademicWeek;
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('dynamicWeekDisplay', value);
   }
 
   void selectWeek(int value) {
