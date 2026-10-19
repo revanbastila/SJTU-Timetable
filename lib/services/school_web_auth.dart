@@ -76,12 +76,14 @@ class SchoolWebAuthenticator {
     return SchoolPageInspection(SchoolPageKind.transition, uri);
   }
 
-  Future<bool> submit(String username, String password) async {
+  Future<bool> submit(String username, String password,
+      {String? expectedUrl}) async {
     if (username.isEmpty || password.isEmpty) return false;
     final accountJson = jsonEncode(username);
     final passwordJson = jsonEncode(password);
     final raw = await controller.runJavaScriptReturningResult('''
       (() => {
+        ${_documentGuard(expectedUrl)}
         const visible = element => !!element &&
           (element.offsetWidth || element.offsetHeight ||
            element.getClientRects().length);
@@ -118,12 +120,14 @@ class SchoolWebAuthenticator {
     return raw == true || '$raw' == 'true';
   }
 
-  Future<bool> fill(String username, String password) async {
+  Future<bool> fill(String username, String password,
+      {String? expectedUrl}) async {
     if (username.isEmpty || password.isEmpty) return false;
     final accountJson = jsonEncode(username);
     final passwordJson = jsonEncode(password);
     final raw = await controller.runJavaScriptReturningResult('''
       (() => {
+        ${_documentGuard(expectedUrl)}
         const visible = element => !!element &&
           (element.offsetWidth || element.offsetHeight ||
            element.getClientRects().length);
@@ -151,14 +155,17 @@ class SchoolWebAuthenticator {
   }
 
   Future<bool> clickSsoButton({
+    String? expectedUrl,
     int attempts = 1,
     Duration delay = const Duration(milliseconds: 350),
     bool Function()? shouldContinue,
   }) async {
     for (var attempt = 0; attempt < attempts; attempt++) {
       if (shouldContinue?.call() == false) return false;
-      final raw = await controller.runJavaScriptReturningResult(r'''
-      (() => {
+      final raw = await controller
+          .runJavaScriptReturningResult('(() => {${_documentGuard(expectedUrl)}'
+              r'''
+
         const visible = element => !!element &&
           (element.offsetWidth || element.offsetHeight ||
            element.getClientRects().length);
@@ -194,14 +201,17 @@ class SchoolWebAuthenticator {
   /// Keep this separate from the generic SSO selector so a nearby external
   /// login option can never be chosen accidentally.
   Future<bool> clickCanvasJaccount({
+    String? expectedUrl,
     int attempts = 10,
     Duration delay = const Duration(milliseconds: 300),
     bool Function()? shouldContinue,
   }) async {
     for (var attempt = 0; attempt < attempts; attempt++) {
       if (shouldContinue?.call() == false) return false;
-      final raw = await controller.runJavaScriptReturningResult(r'''
-      (() => {
+      final raw = await controller
+          .runJavaScriptReturningResult('(() => {${_documentGuard(expectedUrl)}'
+              r'''
+
         const visible = element => !!element &&
           (element.offsetWidth || element.offsetHeight ||
            element.getClientRects().length);
@@ -255,6 +265,10 @@ class SchoolWebAuthenticator {
     }
     return false;
   }
+
+  String _documentGuard(String? expectedUrl) => expectedUrl == null
+      ? ''
+      : 'if (location.href !== new URL(${jsonEncode(expectedUrl)}, location.href).href) return false;';
 
   Map<String, dynamic> _jsonMap(Object value) {
     dynamic decoded = value;

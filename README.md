@@ -1,30 +1,24 @@
-> **A 分支后续测试版：1.14.25（81）**。沿用 1.14.24a 测试分支和测试 Release；正式版请使用 `main` 及正式 Release。安装、改动与限制见 [测试版说明](docs/TEST-1.14.25.md) 和 [逐项验收记录](docs/1.14.25-验收记录.md)。
+# 交大课表 1.14.26 · A 分支后续测试版
 
-# 交大课表 · 精简结构测试版
+本分支为 `test/1.14.26`，由此前 `test/1.14.24a` 更名，保留 1.14.24a、1.14.25 的迭代历史。正式版本使用 `main` 和正式 Release。
 
-基于已完成的 1.14.23 精简结构测试版继续开发。本版 Android 版本为 `1.14.23.1+77`，包名 `cn.sjtu.jiaotong_course.slimtest`，应用名称「交大课表·精简测试」。使用现有 Android Debug 测试证书，可以覆盖升级上一版精简测试包。
+本版仅修复常用网站共用 WebView 导航：准确重试目标页面，取消过期回调和认证任务，保留网页历史及登录会话。保留 1.14.25 已完成的双日历悬浮按钮、课表间距、学期日期、设置菜单及其他功能。
 
-## 交付与审查文档
+## 下载与安装
 
-- [功能、网络接口、原生通道与架构审查](docs/architecture-audit.md)
-- [源码接口定位清单](docs/interface-inventory.md)
-- [修改文件清单](docs/change-manifest.md)
-- [APK、签名与测试核验记录](docs/delivery-verification.md)
-- [按处理器架构打包与更新选择](docs/apk-packaging.md)
+- [1.14.26 测试 Release](https://github.com/revanbastila/SJTU-Timetable/releases/tag/v1.14.26-test)
+- Android 版本 `1.14.26+82`，包名 `cn.sjtu.jiaotong_course.slimtest.a`，应用名「交大课表·测试A」。沿用测试签名，可覆盖安装 1.14.25 测试 A。
+- 常见手机选择 ARM64，架构不确定选择通用 APK。与正式版独立安装，测试版数据与正式版分开。
 
-四个 APK 位于本源码目录的上一级，文件名为 `jiaotong_course-1.14.23.1-slim-test-{架构}.apk`。架构分别为 `universal`、`arm64-v8a`、`armeabi-v7a`、`x86_64`。选择设备支持的架构包即可安装，无需同时安装多个 APK。原正式版及上一版精简测试源码、APK 均保留，本次未发布至 GitHub。
+## 修改与验证
 
-## 实际改动
+- [本版发布说明](docs/TEST-1.14.26.md)
+- [根因、代码位置与逐站验收状态](docs/1.14.26-WebView修复与验收.md)
+- 236 项 Flutter 测试、12 项 JavaScript 检查和静态分析通过；真实 Android、网站登录和网络恢复验收按用户安排稍后进行。
 
-消息合并结果统一缓存；根界面仅响应自身依赖；小组件使用课程目录与日期引用，减少重复计算和传输；常用网站使用一份配置与一个打开入口；删除无调用方接口和临时颜色比较开关；业务快照仅保存在 SQLite，旧偏好快照仅迁移一次。完整行为与测量条件见审查文档。
+## 本地构建
 
-## 使用
-
-测试包可与正式包同时安装，登录、缓存和小组件彼此独立，首次使用需要重新登录。回退时打开原正式应用即可。测试包不能使用正式仓库 APK 覆盖升级，原有包名与签名验证继续保留。
-
-## 构建
-
-在当前源码目录运行 PowerShell：
+在本机配置 Flutter、Android SDK、JDK 及自己的测试签名后，运行项目脚本：
 
 ```powershell
 . ./scripts/project_env.ps1
@@ -33,8 +27,4 @@ flutter test --no-pub --reporter expanded
 ./scripts/build_apk.ps1 -Offline
 ```
 
-脚本复用指定 E 盘工作区中的 Flutter、Android SDK、JDK、缓存以及 `work/android-user/debug.keystore`。构建采用 release 编译模式及测试证书，先生成通用 APK，再以 `--split-per-abi` 生成三个可独立安装的架构 APK。所有包保持 versionCode 77。`pubspec.yaml` 保留 Flutter 三段版本 `1.14.23+77`，Android 显示版本由 `android/version-name.txt` 和脚本的 `--build-name` 设置为 `1.14.23.1`。
-
-## 验证范围
-
-静态检查通过，188 项自动化测试通过，包含匹配架构、通用包、ABI 优先顺序、只有不兼容附件、旧附件命名及原生桥接等测试。构建与签名结果见交付记录。尚未在本轮进行 MuMu、手机或校园账号联网实测。
+仓库与发布附件不含签名私钥、账号凭据或构建缓存。不同签名生成的 APK 无法直接覆盖本测试包。

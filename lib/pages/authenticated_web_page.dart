@@ -76,14 +76,18 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
   Uri? _backOrigin;
   Uri? _backTarget;
   bool _backTargetFinished = false;
-  DateTime? _backHoldUntil;
   Offset? _swipeStart;
   int? _swipePointer;
   DateTime? _lastBackAction;
   int _loginAttempts = 0;
   bool _locationApplied = false;
   bool _ssoAttempted = false;
-  bool _ssoSelecting = false;
+  int? _ssoSelectingEpoch;
+  int? _inspectionEpoch;
+  bool _hasReachedContent = false;
+  Uri? _activeUri;
+  Uri? _retryUri;
+  int? _settledGeneration;
   bool _libraryOpened = false;
   bool _libraryAuthenticating = false;
   bool _libraryPersonalLoginRequested = false;
@@ -113,10 +117,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
         librarySite: widget.librarySite,
         mailSite: widget.mailSite,
       );
-  bool get _returningFromWeb =>
-      _closingWebPage ||
-      _handlingBack ||
-      (_backHoldUntil != null && DateTime.now().isBefore(_backHoldUntil!));
+  bool get _returningFromWeb => _closingWebPage || _handlingBack;
 
   bool _mayAutoNavigate(int epoch) =>
       mounted && _navigationGuard.permits(epoch, returning: _returningFromWeb);
@@ -132,77 +133,28 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: (request) {
-            final requested = Uri.tryParse(request.url);
-            if (_closingWebPage) return NavigationDecision.prevent;
-            if (_returningFromWeb) {
-              if (!_handlingBack ||
-                  !_historyPolicy.isVisiblePage(requested) ||
-                  _historyPolicy.samePage(requested, _backOrigin) ||
-                  !_historyPolicy.samePage(requested, _backTarget)) {
-                return NavigationDecision.prevent;
-              }
-              return NavigationDecision.navigate;
+            final decision = _decideNavigation(request);
+            if (decision == NavigationDecision.navigate &&
+                request.isMainFrame &&
+                !_returningFromWeb) {
+              _trackNavigation(request.url, 'request');
             }
-            if (widget.mailSite) {
-              final uri = Uri.tryParse(request.url);
-              if (uri?.host == widget.targetHost && uri?.scheme == 'http') {
-                final key = uri.toString();
-                if (_mailHttpAllowed.contains(key)) {
-                  if (_mailPendingHttpFallback?.toString() == key) {
-                    _mailPendingHttpFallback = null;
-                  }
-                  return NavigationDecision.navigate;
-                }
-                if (_mailHttpsRetries.add(key)) {
-                  _mailPendingHttpFallback = uri;
-                  _mailLog('https_upgrade', uri);
-                  unawaited(_web.loadRequest(uri!.replace(scheme: 'https')));
-                  return NavigationDecision.prevent;
-                }
-                // Some legacy Zimbra callbacks are hard-coded to HTTP. Let
-                // only the exact callback through after its HTTPS attempt;
-                // Android's network policy separately scopes cleartext to
-                // mail.sjtu.edu.cn.
-                _mailHttpAllowed.add(key);
-                _mailLog('scoped_http_callback', uri);
-                return NavigationDecision.navigate;
-              }
+            return decision;
+          },
+          onUrlChange: (change) {
+            if (change.url != null && !_returningFromWeb) {
+              _trackNavigation(change.url!, 'url');
             }
-            if (widget.librarySite) {
-              final uri = Uri.tryParse(request.url);
-              if (uri?.scheme == 'http') {
-                _libraryLog('http_navigation', uri);
-              }
-              if (uri != null && uri == _libraryHttpFallback) {
-                _libraryHttpFallback = null;
-                return NavigationDecision.navigate;
-              }
-              if (LibraryNavigation.shouldUpgradeToHttps(
-                      uri, widget.targetHost) &&
-                  uri != _libraryHttpFallback) {
-                final key = uri.toString();
-                if (!_libraryHttpsRetries.add(key)) {
-                  // HTTPS was already attempted for this exact redirect. Use
-                  // HTTP only for the explicitly allow-listed library hosts.
-                  if (LibraryNavigation.permitsHttp(uri, widget.targetHost)) {
-                    _libraryHttpFallback = uri;
-                    _libraryLog('scoped_http_fallback', uri);
-                    return NavigationDecision.navigate;
-                  }
-                  return NavigationDecision.prevent;
-                }
-                _libraryLog('https_upgrade', uri);
-                if (LibraryNavigation.permitsHttp(uri, widget.targetHost)) {
-                  _libraryHttpFallback = uri;
-                }
-                unawaited(_web.loadRequest(uri!.replace(scheme: 'https')));
-                return NavigationDecision.prevent;
-              }
-            }
-            return NavigationDecision.navigate;
           },
           onPageStarted: (url) {
             if (_returningFromWeb) return;
+            _trackNavigation(url, 'started', force: true);
+            if (_failed && mounted) {
+              setState(() {
+                _failed = false;
+                _status = _loadingStatus;
+              });
+            }
             final uri = Uri.tryParse(url);
             _graduateLog('redirect', uri);
             if (widget.targetHost == GraduateNavigation.targetHost &&
@@ -280,6 +232,10 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
               }
               return;
             }
+            if (Uri.tryParse(url) != _activeUri) {
+              _navigationLog('ignore_stale_finish', Uri.tryParse(url));
+              return;
+            }
             final epoch = _navigationGuard.generation;
             if (widget.targetHost == GraduateNavigation.targetHost &&
                 _failed &&
@@ -314,7 +270,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
               await _keepLibraryLinksInWebView();
             }
             if (!_mayAutoNavigate(epoch)) return;
-            await _pageReady();
+            await _pageReady(epoch);
             if (!_mayAutoNavigate(epoch)) return;
             if (widget.canvasSite &&
                 !_canvasDashboardViewCheckInstalled &&
@@ -333,6 +289,23 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
                       Uri.tryParse(error.url ?? ''), _backTarget)) {
                 _backStepFailed = true;
               }
+              return;
+            }
+            if (error.isForMainFrame == true &&
+                _ready &&
+                _settledGeneration == _navigationGuard.generation) {
+              _navigationLog(
+                  'ignore_error_after_success', Uri.tryParse(error.url ?? ''));
+              return;
+            }
+            final errorUri = Uri.tryParse(error.url ?? '');
+            if (error.isForMainFrame == true &&
+                errorUri != null &&
+                errorUri.host.isNotEmpty &&
+                _activeUri != null &&
+                errorUri.replace(fragment: '') !=
+                    _activeUri!.replace(fragment: '')) {
+              _navigationLog('ignore_stale_error', errorUri);
               return;
             }
             if (widget.librarySite &&
@@ -366,7 +339,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
                       _libraryHttpFallback = uri;
                     }
                     _libraryLog('https_retry', uri);
-                    unawaited(_web.loadRequest(uri.replace(scheme: 'https')));
+                    unawaited(_loadUrl(uri.replace(scheme: 'https')));
                   } else {
                     // The navigation delegate may already have started the
                     // HTTPS replacement. Do not turn the canceled cleartext
@@ -386,7 +359,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
                     _libraryHttpFallback = fallback;
                     _libraryLog('https_failed_scoped_http_fallback', fallback,
                         'code=${error.errorCode}');
-                    unawaited(_web.loadRequest(fallback));
+                    unawaited(_loadUrl(fallback));
                     return;
                   }
                 }
@@ -414,7 +387,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
                     LibraryNavigation.permitsHttp(
                         fallback, widget.targetHost)) {
                   _libraryLog('http_fallback', fallback);
-                  unawaited(_web.loadRequest(fallback));
+                  unawaited(_loadUrl(fallback));
                   return;
                 }
                 if (_libraryPersonalLoginRequested) {
@@ -429,13 +402,15 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
                   if (!_libraryAuthenticating) {
                     _libraryErrorGrace?.cancel();
                     final failedUrl = error.url;
+                    final failureEpoch = _navigationGuard.generation;
                     _libraryErrorGrace =
                         Timer(const Duration(seconds: 3), () async {
                       if (mounted &&
                           !_returningFromWeb &&
                           failedUrl != null &&
                           _libraryFailedUrl == failedUrl &&
-                          await _web.currentUrl() == failedUrl) {
+                          await _web.currentUrl() == failedUrl &&
+                          _mayAutoNavigate(failureEpoch)) {
                         _fail('页面加载失败，请检查网络后重试');
                       }
                     });
@@ -453,7 +428,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
                     uri?.host == widget.targetHost &&
                     _mailHttpsRetries.add(uri.toString())) {
                   _mailLog('https_retry', uri);
-                  unawaited(_web.loadRequest(uri!.replace(scheme: 'https')));
+                  unawaited(_loadUrl(uri!.replace(scheme: 'https')));
                   return;
                 }
                 final fallback = _mailPendingHttpFallback;
@@ -466,7 +441,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
                   _mailHttpAllowed.add(fallback.toString());
                   _mailLog('https_unavailable_scoped_http_fallback', fallback,
                       'code=${error.errorCode}');
-                  unawaited(_web.loadRequest(fallback));
+                  unawaited(_loadUrl(fallback));
                   return;
                 }
               } else if (widget.targetHost == 'yjs.sjtu.edu.cn') {
@@ -504,6 +479,121 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
     _history = AndroidWebHistory(_web);
     _status = _loadingStatus;
     unawaited(_initialize());
+  }
+
+  bool _isLoginEntry(Uri uri) {
+    final login = RegExp(
+        r'^/(?:accounts?/)?(?:login|signin|sign-in|auth|sso|session)(?:/|$)',
+        caseSensitive: false);
+    final fragment = uri.fragment.replaceFirst(RegExp(r'^!'), '');
+    return login.hasMatch(uri.path) ||
+        (fragment.startsWith('/') &&
+            login.hasMatch(Uri.tryParse(fragment)?.path ?? ''));
+  }
+
+  void _navigationLog(String event, Uri? uri) {
+    // No query, fragment, cookie, document body or credentials in navigation logs.
+    debugPrint(
+        '[web-nav][${widget.targetHost}][$event] epoch=${_navigationGuard.generation} ${_safeLocation(uri?.toString())}');
+  }
+
+  void _trackNavigation(String url, String phase, {bool force = false}) {
+    final uri = Uri.tryParse(url);
+    if (uri == null ||
+        !uri.hasAuthority ||
+        !['https', 'http'].contains(uri.scheme)) {
+      return;
+    }
+    if (!force && uri == _activeUri) return;
+    _navigationGuard.invalidate();
+    _activeUri = uri;
+    _retryUri = null;
+    _libraryErrorGrace?.cancel();
+    _libraryFailedUrl = null;
+    _navigationLog(phase, uri);
+    if (!_ready && !_verification) {
+      _startDeadline();
+    } else {
+      _deadline?.cancel();
+    }
+  }
+
+  Future<void> _loadUrl(Uri uri, {String reason = 'automatic'}) async {
+    if (!mounted || _closingWebPage) return;
+    _trackNavigation(uri.toString(), reason, force: true);
+    await _web.loadRequest(uri);
+  }
+
+  NavigationDecision _decideNavigation(NavigationRequest request) {
+    final requested = Uri.tryParse(request.url);
+    if (_closingWebPage) return NavigationDecision.prevent;
+    // Frame navigation must never be promoted into a top-level loadRequest.
+    if (!request.isMainFrame) return NavigationDecision.navigate;
+    if (_returningFromWeb) {
+      if (!_handlingBack ||
+          !_historyPolicy.isVisiblePage(requested) ||
+          _historyPolicy.samePage(requested, _backOrigin) ||
+          !_historyPolicy.samePage(requested, _backTarget)) {
+        return NavigationDecision.prevent;
+      }
+      return NavigationDecision.navigate;
+    }
+    if (widget.mailSite) {
+      final uri = Uri.tryParse(request.url);
+      if (uri?.host == widget.targetHost && uri?.scheme == 'http') {
+        final key = uri.toString();
+        if (_mailHttpAllowed.contains(key)) {
+          if (_mailPendingHttpFallback?.toString() == key) {
+            _mailPendingHttpFallback = null;
+          }
+          return NavigationDecision.navigate;
+        }
+        if (_mailHttpsRetries.add(key)) {
+          _mailPendingHttpFallback = uri;
+          _mailLog('https_upgrade', uri);
+          unawaited(_web.loadRequest(uri!.replace(scheme: 'https')));
+          return NavigationDecision.prevent;
+        }
+        // Some legacy Zimbra callbacks are hard-coded to HTTP. Let
+        // only the exact callback through after its HTTPS attempt;
+        // Android's network policy separately scopes cleartext to
+        // mail.sjtu.edu.cn.
+        _mailHttpAllowed.add(key);
+        _mailLog('scoped_http_callback', uri);
+        return NavigationDecision.navigate;
+      }
+    }
+    if (widget.librarySite) {
+      final uri = Uri.tryParse(request.url);
+      if (uri?.scheme == 'http') {
+        _libraryLog('http_navigation', uri);
+      }
+      if (uri != null && uri == _libraryHttpFallback) {
+        _libraryHttpFallback = null;
+        return NavigationDecision.navigate;
+      }
+      if (LibraryNavigation.shouldUpgradeToHttps(uri, widget.targetHost) &&
+          uri != _libraryHttpFallback) {
+        final key = uri.toString();
+        if (!_libraryHttpsRetries.add(key)) {
+          // HTTPS was already attempted for this exact redirect. Use
+          // HTTP only for the explicitly allow-listed library hosts.
+          if (LibraryNavigation.permitsHttp(uri, widget.targetHost)) {
+            _libraryHttpFallback = uri;
+            _libraryLog('scoped_http_fallback', uri);
+            return NavigationDecision.navigate;
+          }
+          return NavigationDecision.prevent;
+        }
+        _libraryLog('https_upgrade', uri);
+        if (LibraryNavigation.permitsHttp(uri, widget.targetHost)) {
+          _libraryHttpFallback = uri;
+        }
+        unawaited(_web.loadRequest(uri!.replace(scheme: 'https')));
+        return NavigationDecision.prevent;
+      }
+    }
+    return NavigationDecision.navigate;
   }
 
   String _safeLocation(String? value) {
@@ -679,20 +769,24 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
 
   @override
   void dispose() {
+    _navigationGuard.invalidate();
     _deadline?.cancel();
     _libraryErrorGrace?.cancel();
     super.dispose();
   }
 
   Future<void> _initialize() async {
+    final epoch = _navigationGuard.generation;
     await _configureAndroidWebView();
-    await _reloadFromStart();
+    if (!_mayAutoNavigate(epoch)) return;
+    await _reloadCurrentPage(initial: true);
   }
 
   void _startDeadline() {
     _deadline?.cancel();
+    final epoch = _navigationGuard.generation;
     _deadline = Timer(const Duration(seconds: 30), () {
-      if (_returningFromWeb) return;
+      if (!_mayAutoNavigate(epoch)) return;
       if (!_ready && !_verification) {
         if (widget.targetHost == GraduateNavigation.targetHost) {
           unawaited(_logGraduateTimeout());
@@ -747,20 +841,54 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
     }
   }
 
-  Future<void> _reloadFromStart() async {
-    if (_handlingBack || _closingWebPage) return;
-    _backHoldUntil = null;
+  Future<void> _reloadCurrentPage({bool initial = false}) async {
+    if (_handlingBack || _closingWebPage || !mounted) return;
+    _navigationGuard.invalidate();
+    final epoch = _navigationGuard.generation;
+    final failed = _failed ? _retryUri : null;
+    String? live;
+    if (!initial && failed == null) {
+      try {
+        live = await _web.currentUrl();
+      } catch (_) {}
+    }
+    if (!mounted || epoch != _navigationGuard.generation) return;
+    final liveUri = Uri.tryParse(live ?? '');
+    final target = initial
+        ? Uri.parse(widget.initialUrl)
+        : failed ??
+            (liveUri?.hasAuthority == true &&
+                    ['https', 'http'].contains(liveUri?.scheme)
+                ? liveUri
+                : null) ??
+            _activeUri ??
+            Uri.parse(widget.initialUrl);
+    _libraryErrorGrace?.cancel();
+    _libraryFailedUrl = null;
+    try {
+      await _history.stopLoading();
+    } catch (_) {}
+    if (!mounted || epoch != _navigationGuard.generation) return;
     _deadline?.cancel();
     _loginAttempts = 0;
-    _locationApplied = false;
+    if (initial) _locationApplied = false;
     _ssoAttempted = false;
-    _libraryOpened = false;
+    if (initial) _libraryOpened = false;
     _libraryAuthenticating = false;
-    _libraryPersonalLoginRequested = false;
+    if (initial) {
+      _libraryPersonalLoginRequested = false;
+      _libraryHttpFallback = null;
+      _libraryHttpsRetries.clear();
+      _libraryScopedHttpFallbacksTried.clear();
+    }
     _librarySsoAttempts = 0;
-    _libraryHttpFallback = null;
-    _libraryHttpsRetries.clear();
-    _libraryScopedHttpFallbacksTried.clear();
+    if (!initial &&
+        widget.librarySite &&
+        LibraryNavigation.permitsHttp(target, widget.targetHost)) {
+      // This exact legacy destination was already accepted; retry it without
+      // restarting an HTTPS/HTTP recovery cycle.
+      _libraryHttpFallback = target;
+    }
     if (mounted) {
       setState(() {
         _ready = false;
@@ -770,7 +898,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
       });
     }
     _startDeadline();
-    await _web.loadRequest(Uri.parse(widget.initialUrl));
+    await _loadUrl(target, reason: initial ? 'initial' : 'retry');
   }
 
   Future<void> _applyCanvasDashboardDefaultView() async {
@@ -786,253 +914,278 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
     }
   }
 
-  Future<void> _pageReady() async {
-    final epoch = _navigationGuard.generation;
-    if (!_mayAutoNavigate(epoch)) return;
-    if (_failed && !widget.librarySite) return;
-    final uri = Uri.tryParse(await _web.currentUrl() ?? '');
-    if (uri == null) return;
-    if (!_mayAutoNavigate(epoch)) return;
-    if (widget.targetHost == GraduateNavigation.targetHost &&
-        GraduateNavigation.isCallback(uri)) {
-      _graduateLog('oauth_callback_received', uri);
-      if (mounted) setState(() => _status = '正在等待 jAccount 登录回跳…');
-      return;
-    }
-    final libraryDestination =
-        LibraryNavigation.classify(uri, widget.targetHost);
-
-    // The current official library portal may canonicalize between its
-    // www/non-www hostnames before the webview reaches a stable page. Treat a
-    // library/Primo destination as the ready site instead of misclassifying
-    // that harmless canonical redirect as an SSO failure.
-    if (widget.librarySite &&
-        !_libraryOpened &&
-        (libraryDestination == LibraryDestination.library ||
-            libraryDestination == LibraryDestination.primo)) {
-      _libraryOpened = true;
-      _canvasHomeUri ??= uri;
-      _deadline?.cancel();
-      if (mounted) {
-        setState(() {
-          _ready = true;
-          _verification = false;
-          _failed = false;
-          _status = '';
-        });
-      }
-      unawaited(_keepLibraryLinksInWebView());
-      unawaited(_logLibraryCookieStatus('library_home'));
-      return;
-    }
-
-    if (widget.librarySite &&
-        _libraryOpened &&
-        (libraryDestination == LibraryDestination.schoolLogin ||
-            LibraryNavigation.isAuthenticationIntermediate(uri))) {
-      if (!_libraryAuthenticating) _startDeadline();
-      _libraryAuthenticating = true;
-      _libraryLog('redirect_pending', uri);
-      if (mounted) {
-        setState(() {
-          _ready = false;
-          _failed = false;
-          _status = '正在通过 jAccount 进入我的图书馆…';
-        });
-      }
-      if (LibraryNavigation.isPrimoHost(uri.host) &&
-          _libraryPersonalLoginRequested) {
-        unawaited(_prepareLibraryPersonalLogin());
-      }
-      return;
-    }
-
-    if (widget.librarySite &&
-        _libraryOpened &&
-        libraryDestination != LibraryDestination.schoolLogin) {
-      if (libraryDestination == LibraryDestination.transient) return;
-      if (libraryDestination == LibraryDestination.unsupported) {
-        _libraryLog('redirect_failed', uri, 'unsupported_scheme');
-        _fail('图书馆页面跳转失败，请重试');
+  Future<void> _pageReady(int epoch) async {
+    // Duplicate finish events share one inspection; a newer document can start
+    // immediately without waiting for the superseded inspection.
+    if (_inspectionEpoch == epoch) return;
+    _inspectionEpoch = epoch;
+    try {
+      if (!_mayAutoNavigate(epoch)) return;
+      if (_failed && !widget.librarySite) return;
+      final uri = Uri.tryParse(await _web.currentUrl() ?? '');
+      if (uri == null) return;
+      if (!_mayAutoNavigate(epoch)) return;
+      if (widget.targetHost == GraduateNavigation.targetHost &&
+          GraduateNavigation.isCallback(uri)) {
+        _graduateLog('oauth_callback_received', uri);
+        if (mounted) setState(() => _status = '正在等待 jAccount 登录回跳…');
         return;
       }
-      if (_libraryAuthenticating &&
-          libraryDestination == LibraryDestination.web) {
-        _libraryLog('redirect_pending', uri);
-        return;
-      }
-      _libraryLog(
-          _libraryAuthenticating ? 'callback_accepted' : 'page_ready', uri);
-      if (_libraryAuthenticating) {
-        unawaited(_logLibraryCookieStatus('callback',
-            expectPrimoSession:
-                libraryDestination == LibraryDestination.primo));
-      }
-      _libraryAuthenticating = false;
-      _deadline?.cancel();
-      if (mounted) {
-        setState(() {
-          _ready = true;
-          _verification = false;
-          _failed = false;
-          _status = '';
-        });
-      }
-      if (libraryDestination == LibraryDestination.primo &&
-          _libraryPersonalLoginRequested) {
-        await _prepareLibraryPersonalLogin();
-      }
-      return;
-    }
+      final libraryDestination =
+          LibraryNavigation.classify(uri, widget.targetHost);
 
-    if (!widget.authenticationRequired) {
-      if (uri.scheme == 'https' && uri.host == widget.targetHost) {
+      // The current official library portal may canonicalize between its
+      // www/non-www hostnames before the webview reaches a stable page. Treat a
+      // library/Primo destination as the ready site instead of misclassifying
+      // that harmless canonical redirect as an SSO failure.
+      if (widget.librarySite &&
+          !_libraryOpened &&
+          (libraryDestination == LibraryDestination.library ||
+              libraryDestination == LibraryDestination.primo)) {
+        _libraryOpened = true;
         _canvasHomeUri ??= uri;
         _deadline?.cancel();
         if (mounted) {
           setState(() {
+            _hasReachedContent = true;
+            _settledGeneration = _navigationGuard.generation;
             _ready = true;
             _verification = false;
             _failed = false;
             _status = '';
           });
         }
-        await _applyLocationQuery();
-      }
-      return;
-    }
-
-    final canvasChooser = widget.canvasSite &&
-        uri.host == widget.targetHost &&
-        uri.path.startsWith('/login/canvas');
-    if (!_ssoAttempted &&
-        !_ssoSelecting &&
-        (widget.canvasSite || widget.preferSsoLogin) &&
-        uri.host == widget.targetHost &&
-        (widget.preferSsoLogin || uri.path.contains('/login'))) {
-      try {
-        _ssoSelecting = true;
-        final clicked = canvasChooser
-            ? await _auth.clickCanvasJaccount(
-                shouldContinue: () => _mayAutoNavigate(epoch))
-            : await _auth.clickSsoButton(
-                attempts: 6,
-                shouldContinue: () => _mayAutoNavigate(epoch),
-              );
-        if (!_mayAutoNavigate(epoch)) return;
-        if (clicked) {
-          _ssoAttempted = true;
-          if (mounted) setState(() => _status = '正在通过 jAccount 登录…');
-          return;
-        }
-        if (widget.canvasSite) {
-          final fallback = Uri.tryParse(widget.ssoFallbackUrl);
-          if (fallback != null && fallback.scheme == 'https') {
-            _ssoAttempted = true;
-            if (mounted) setState(() => _status = '正在进入 jAccount 登录…');
-            await _web.loadRequest(fallback);
-            return;
-          }
-          _fail('未找到 Canvas 的 jAccount 登录入口，请重试');
-          return;
-        }
-      } catch (error, stack) {
-        if (!_mayAutoNavigate(epoch)) return;
-        debugPrint('School SSO selection failed: $error\n$stack');
-        if (widget.canvasSite) {
-          _fail('Canvas 登录跳转失败，请重试');
-          return;
-        }
-      } finally {
-        _ssoSelecting = false;
-      }
-    }
-
-    SchoolPageInspection inspection;
-    try {
-      inspection = await _auth.inspect(widget.targetHost,
-          allowHttpTarget: widget.allowHttpTarget);
-      if (!_mayAutoNavigate(epoch)) return;
-    } catch (error, stack) {
-      if (!_mayAutoNavigate(epoch)) return;
-      if (widget.librarySite && _libraryOpened) {
-        _libraryLog('redirect_pending', uri, 'inspection=${error.runtimeType}');
+        unawaited(_keepLibraryLinksInWebView());
+        unawaited(_logLibraryCookieStatus('library_home'));
         return;
       }
-      if (widget.targetHost == GraduateNavigation.targetHost &&
-          GraduateNavigation.isSsoIntermediate(uri)) {
-        _graduateLog('sso_inspection_pending', uri, '${error.runtimeType}');
-        if (mounted) setState(() => _status = '正在等待 jAccount 登录回跳…');
-        return;
-      }
-      debugPrint('Authenticated page inspection failed: $error\n$stack');
-      _fail('无法确认学校登录状态，请重试');
-      return;
-    }
 
-    _graduateLog('inspection', inspection.uri, 'kind=${inspection.kind.name}');
-
-    switch (inspection.kind) {
-      case SchoolPageKind.target:
-        if (widget.librarySite) {
-          _libraryOpened = true;
-          _libraryLog('library_home', inspection.uri);
-          unawaited(_logLibraryCookieStatus('library_home'));
-        }
-        _canvasHomeUri ??= inspection.uri;
-        _deadline?.cancel();
-        if (mounted) {
-          setState(() {
-            _ready = true;
-            _verification = false;
-            _failed = false;
-            _status = '';
-          });
-        }
-        await _applyLocationQuery();
-        return;
-      case SchoolPageKind.login:
-        _libraryLog('jaccount_login_required', inspection.uri);
-        await _submitLogin(epoch);
-        return;
-      case SchoolPageKind.challenge:
-        _libraryLog('jaccount_verification_required', inspection.uri);
-        if (widget.app.sessionPassword.isNotEmpty) {
-          await _auth.fill(
-            widget.app.sessionUsername,
-            widget.app.sessionPassword,
-          );
-          if (!_mayAutoNavigate(epoch)) return;
-        }
-        _deadline?.cancel();
+      if (widget.librarySite &&
+          _libraryOpened &&
+          (libraryDestination == LibraryDestination.schoolLogin ||
+              LibraryNavigation.isAuthenticationIntermediate(uri))) {
+        if (!_libraryAuthenticating) _startDeadline();
+        _libraryAuthenticating = true;
+        _libraryLog('redirect_pending', uri);
         if (mounted) {
           setState(() {
             _ready = false;
-            _verification = true;
-            _status = '学校要求额外验证，完成后将自动继续';
+            _failed = false;
+            _status = '正在通过 jAccount 进入我的图书馆…';
           });
         }
+        if (LibraryNavigation.isPrimoHost(uri.host) &&
+            _libraryPersonalLoginRequested) {
+          unawaited(_prepareLibraryPersonalLogin());
+        }
         return;
-      case SchoolPageKind.transition:
-        _libraryLog('redirect_pending', inspection.uri);
-        if (mounted) setState(() => _status = '学校正在完成登录跳转…');
+      }
+
+      if (widget.librarySite &&
+          _libraryOpened &&
+          libraryDestination != LibraryDestination.schoolLogin) {
+        if (libraryDestination == LibraryDestination.transient) return;
+        if (libraryDestination == LibraryDestination.unsupported) {
+          _libraryLog('redirect_failed', uri, 'unsupported_scheme');
+          _fail('图书馆页面跳转失败，请重试');
+          return;
+        }
+        if (_libraryAuthenticating &&
+            libraryDestination == LibraryDestination.web) {
+          _libraryLog('redirect_pending', uri);
+          return;
+        }
+        _libraryLog(
+            _libraryAuthenticating ? 'callback_accepted' : 'page_ready', uri);
+        if (_libraryAuthenticating) {
+          unawaited(_logLibraryCookieStatus('callback',
+              expectPrimoSession:
+                  libraryDestination == LibraryDestination.primo));
+        }
+        _libraryAuthenticating = false;
+        _deadline?.cancel();
+        if (mounted) {
+          setState(() {
+            _hasReachedContent = true;
+            _settledGeneration = _navigationGuard.generation;
+            _ready = true;
+            _verification = false;
+            _failed = false;
+            _status = '';
+          });
+        }
+        if (libraryDestination == LibraryDestination.primo &&
+            _libraryPersonalLoginRequested) {
+          await _prepareLibraryPersonalLogin();
+        }
         return;
-      case SchoolPageKind.outside:
-        if (widget.librarySite) {
-          _libraryLog('redirect_failed', inspection.uri, 'inspection_outside');
+      }
+
+      if (!widget.authenticationRequired) {
+        if (uri.scheme == 'https' && uri.host == widget.targetHost) {
+          _canvasHomeUri ??= uri;
+          _deadline?.cancel();
+          if (mounted) {
+            setState(() {
+              _hasReachedContent = true;
+              _settledGeneration = _navigationGuard.generation;
+              _ready = true;
+              _verification = false;
+              _failed = false;
+              _status = '';
+            });
+          }
+          await _applyLocationQuery();
+        }
+        return;
+      }
+
+      final canvasChooser = widget.canvasSite &&
+          uri.host == widget.targetHost &&
+          uri.path.startsWith('/login/canvas');
+      if (!_ssoAttempted &&
+          _ssoSelectingEpoch != epoch &&
+          (_isLoginEntry(uri) ||
+              (!_hasReachedContent &&
+                  (_historyPolicy.isHomePage(uri) ||
+                      uri.path == Uri.parse(widget.initialUrl).path))) &&
+          (widget.canvasSite || widget.preferSsoLogin) &&
+          uri.host == widget.targetHost &&
+          (widget.preferSsoLogin || uri.path.contains('/login'))) {
+        try {
+          _ssoSelectingEpoch = epoch;
+          final clicked = canvasChooser
+              ? await _auth.clickCanvasJaccount(
+                  expectedUrl: uri.toString(),
+                  shouldContinue: () => _mayAutoNavigate(epoch))
+              : await _auth.clickSsoButton(
+                  expectedUrl: uri.toString(),
+                  attempts: 6,
+                  shouldContinue: () => _mayAutoNavigate(epoch),
+                );
+          if (!_mayAutoNavigate(epoch)) return;
+          if (clicked) {
+            _ssoAttempted = true;
+            if (mounted) setState(() => _status = '正在通过 jAccount 登录…');
+            return;
+          }
+          if (widget.canvasSite) {
+            final fallback = Uri.tryParse(widget.ssoFallbackUrl);
+            if (fallback != null && fallback.scheme == 'https') {
+              _ssoAttempted = true;
+              if (mounted) setState(() => _status = '正在进入 jAccount 登录…');
+              await _loadUrl(fallback);
+              return;
+            }
+            _fail('未找到 Canvas 的 jAccount 登录入口，请重试');
+            return;
+          }
+        } catch (error, stack) {
+          if (!_mayAutoNavigate(epoch)) return;
+          debugPrint('School SSO selection failed: $error\n$stack');
+          if (widget.canvasSite) {
+            _fail('Canvas 登录跳转失败，请重试');
+            return;
+          }
+        } finally {
+          if (_ssoSelectingEpoch == epoch) _ssoSelectingEpoch = null;
+        }
+      }
+
+      SchoolPageInspection inspection;
+      try {
+        inspection = await _auth.inspect(widget.targetHost,
+            allowHttpTarget: widget.allowHttpTarget);
+        if (!_mayAutoNavigate(epoch)) return;
+      } catch (error, stack) {
+        if (!_mayAutoNavigate(epoch)) return;
+        if (widget.librarySite && _libraryOpened) {
+          _libraryLog(
+              'redirect_pending', uri, 'inspection=${error.runtimeType}');
+          return;
         }
         if (widget.targetHost == GraduateNavigation.targetHost &&
-            GraduateNavigation.isSsoIntermediate(inspection.uri)) {
-          _graduateLog('sso_transition', inspection.uri);
+            GraduateNavigation.isSsoIntermediate(uri)) {
+          _graduateLog('sso_inspection_pending', uri, '${error.runtimeType}');
           if (mounted) setState(() => _status = '正在等待 jAccount 登录回跳…');
           return;
         }
-        debugPrint(
-          'School authentication left the allowed redirect chain: '
-          '${_safeLocation(inspection.uri?.toString())}',
-        );
-        _fail('登录跳转异常，请重试');
+        debugPrint('Authenticated page inspection failed: $error\n$stack');
+        _fail('无法确认学校登录状态，请重试');
         return;
+      }
+
+      _graduateLog(
+          'inspection', inspection.uri, 'kind=${inspection.kind.name}');
+
+      switch (inspection.kind) {
+        case SchoolPageKind.target:
+          if (widget.librarySite) {
+            _libraryOpened = true;
+            _libraryLog('library_home', inspection.uri);
+            unawaited(_logLibraryCookieStatus('library_home'));
+          }
+          _canvasHomeUri ??= inspection.uri;
+          _deadline?.cancel();
+          if (mounted) {
+            setState(() {
+              _hasReachedContent = true;
+              _settledGeneration = _navigationGuard.generation;
+              _ready = true;
+              _verification = false;
+              _failed = false;
+              _status = '';
+            });
+          }
+          await _applyLocationQuery();
+          return;
+        case SchoolPageKind.login:
+          _libraryLog('jaccount_login_required', inspection.uri);
+          await _submitLogin(epoch, inspection.uri?.toString());
+          return;
+        case SchoolPageKind.challenge:
+          _libraryLog('jaccount_verification_required', inspection.uri);
+          if (widget.app.sessionPassword.isNotEmpty) {
+            await _auth.fill(
+              widget.app.sessionUsername,
+              widget.app.sessionPassword,
+              expectedUrl: inspection.uri?.toString(),
+            );
+            if (!_mayAutoNavigate(epoch)) return;
+          }
+          _deadline?.cancel();
+          if (mounted) {
+            setState(() {
+              _ready = false;
+              _verification = true;
+              _status = '学校要求额外验证，完成后将自动继续';
+            });
+          }
+          return;
+        case SchoolPageKind.transition:
+          _libraryLog('redirect_pending', inspection.uri);
+          if (mounted) setState(() => _status = '学校正在完成登录跳转…');
+          return;
+        case SchoolPageKind.outside:
+          if (widget.librarySite) {
+            _libraryLog(
+                'redirect_failed', inspection.uri, 'inspection_outside');
+          }
+          if (widget.targetHost == GraduateNavigation.targetHost &&
+              GraduateNavigation.isSsoIntermediate(inspection.uri)) {
+            _graduateLog('sso_transition', inspection.uri);
+            if (mounted) setState(() => _status = '正在等待 jAccount 登录回跳…');
+            return;
+          }
+          debugPrint(
+            'School authentication left the allowed redirect chain: '
+            '${_safeLocation(inspection.uri?.toString())}',
+          );
+          _fail('登录跳转异常，请重试');
+          return;
+      }
+    } finally {
+      if (_inspectionEpoch == epoch) _inspectionEpoch = null;
     }
   }
 
@@ -1079,7 +1232,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
     }
   }
 
-  Future<void> _submitLogin(int epoch) async {
+  Future<void> _submitLogin(int epoch, String? expectedUrl) async {
     if (!_mayAutoNavigate(epoch)) return;
     if (widget.app.sessionPassword.isEmpty) {
       _libraryLog('jaccount_login_failed',
@@ -1101,6 +1254,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
       final submitted = await _auth.submit(
         widget.app.sessionUsername,
         widget.app.sessionPassword,
+        expectedUrl: expectedUrl,
       );
       if (!_mayAutoNavigate(epoch)) return;
       if (!submitted) {
@@ -1126,6 +1280,9 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
 
   void _fail(String message) {
     if (!mounted || _returningFromWeb) return;
+    _retryUri = _activeUri;
+    _navigationGuard.invalidate();
+    _navigationLog('failure', _retryUri);
     _deadline?.cancel();
     setState(() {
       _ready = false;
@@ -1212,6 +1369,8 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
               _libraryPersonalLoginRequested = false;
               _libraryFailedUrl = null;
               setState(() {
+                _hasReachedContent = true;
+                _settledGeneration = _navigationGuard.generation;
                 _ready = true;
                 _verification = false;
                 _failed = false;
@@ -1235,7 +1394,6 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
       debugPrint('WebView back navigation failed: $error\n$stack');
       await _exitWebPage(result);
     } finally {
-      _backHoldUntil = DateTime.now().add(const Duration(milliseconds: 900));
       _handlingBack = false;
     }
   }
@@ -1316,7 +1474,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
             ),
           IconButton(
             tooltip: '重新加载',
-            onPressed: _reloadFromStart,
+            onPressed: _reloadCurrentPage,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -1368,7 +1526,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
                       if (_failed) ...[
                         const SizedBox(height: 18),
                         FilledButton.icon(
-                          onPressed: _reloadFromStart,
+                          onPressed: _reloadCurrentPage,
                           icon: const Icon(Icons.refresh),
                           label: const Text('重试'),
                         ),
