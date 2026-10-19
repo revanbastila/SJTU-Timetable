@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -8,9 +9,18 @@ import '../models/canvas_data.dart';
 class CanvasAnnouncementSync {
   static const _channel =
       MethodChannel('cn.sjtu.jiaotong_course/announcements');
+  static final Stream<void> updates = _updates();
 
-  static Future<void> configure(
-          String account, List<CanvasCourseData> courses) =>
+  static Stream<void> _updates() {
+    final controller = StreamController<void>.broadcast();
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'updated') controller.add(null);
+    });
+    return controller.stream;
+  }
+
+  static Future<void> configure(String account, List<CanvasCourseData> courses,
+          {bool notificationsEnabled = false}) =>
       _channel.invokeMethod<void>('configure', {
         'account': account.isEmpty
             ? ''
@@ -18,6 +28,12 @@ class CanvasAnnouncementSync {
         'catalog': jsonEncode([
           for (final course in courses) {'id': course.id, 'name': course.name},
         ]),
+        'notificationsEnabled': notificationsEnabled,
+        'known': [
+          for (final course in courses)
+            for (final item in course.announcements)
+              if (item.assetId.isNotEmpty) '${course.id}:${item.assetId}'
+        ],
       }).timeout(const Duration(seconds: 8));
 
   static Future<void> disable() async {

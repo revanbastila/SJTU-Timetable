@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../services/canvas_announcement_sync.dart';
+import '../services/notification_service.dart';
 import '../state/app_controller.dart';
 
 class CanvasAnnouncementObserver extends StatefulWidget {
@@ -17,6 +18,7 @@ class CanvasAnnouncementObserver extends StatefulWidget {
 class _CanvasAnnouncementObserverState extends State<CanvasAnnouncementObserver>
     with WidgetsBindingObserver {
   Timer? _timer;
+  StreamSubscription<void>? _updates;
   String _signature = '';
   bool _wasRefreshing = false;
   bool _busy = false;
@@ -25,6 +27,7 @@ class _CanvasAnnouncementObserverState extends State<CanvasAnnouncementObserver>
   String get _configuration => jsonEncode([
         widget.app.loggedIn,
         widget.app.username,
+        widget.app.reminderMode.index,
         for (final course in widget.app.canvas.courses) [course.id, course.name]
       ]);
 
@@ -33,6 +36,9 @@ class _CanvasAnnouncementObserverState extends State<CanvasAnnouncementObserver>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.app.addListener(_onChanged);
+    _updates = CanvasAnnouncementSync.updates.listen((_) {
+      if (mounted && _foreground) unawaited(_poll(refresh: false));
+    });
     _timer = Timer.periodic(const Duration(minutes: 2), (_) {
       if (_foreground) unawaited(_poll());
     });
@@ -47,7 +53,7 @@ class _CanvasAnnouncementObserverState extends State<CanvasAnnouncementObserver>
     if (_configuration != _signature || finished) unawaited(_poll());
   }
 
-  Future<void> _poll() async {
+  Future<void> _poll({bool refresh = true}) async {
     if (!mounted || _busy || !_foreground) return;
     _busy = true;
     final generation = widget.app.sessionGeneration;
@@ -55,7 +61,8 @@ class _CanvasAnnouncementObserverState extends State<CanvasAnnouncementObserver>
     try {
       await CanvasAnnouncementSync.configure(
           widget.app.loggedIn ? widget.app.username : '',
-          widget.app.canvas.courses);
+          widget.app.canvas.courses,
+          notificationsEnabled: widget.app.reminderMode != ReminderMode.off);
       _signature = signature;
       if (!mounted ||
           generation != widget.app.sessionGeneration ||
@@ -64,7 +71,7 @@ class _CanvasAnnouncementObserverState extends State<CanvasAnnouncementObserver>
       }
       await widget.app.applyAnnouncementUpdates(
           await CanvasAnnouncementSync.read(), generation);
-      if (!mounted || widget.app.refreshing || !_foreground) return;
+      if (!refresh || !mounted || widget.app.refreshing || !_foreground) return;
       await widget.app.applyAnnouncementUpdates(
           await CanvasAnnouncementSync.read(refresh: true), generation);
     } catch (error) {
@@ -90,6 +97,7 @@ class _CanvasAnnouncementObserverState extends State<CanvasAnnouncementObserver>
   @override
   void dispose() {
     _timer?.cancel();
+    _updates?.cancel();
     widget.app.removeListener(_onChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();

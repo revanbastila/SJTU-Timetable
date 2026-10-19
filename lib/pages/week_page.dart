@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../models/app_theme.dart';
 import '../models/course.dart';
 import '../models/teaching_calendar.dart';
 import '../models/periods.dart';
@@ -11,7 +10,6 @@ import '../models/semester_timetable.dart';
 import '../models/week_rules.dart';
 import '../state/app_controller.dart';
 import 'course_detail_page.dart';
-import 'portal_sync_page.dart';
 
 /// Match civil dates rather than highlighting the same weekday in every week.
 int? weekdayInDisplayedWeek(DateTime today, DateTime monday) {
@@ -59,6 +57,7 @@ class WeekPage extends StatelessWidget {
                   View.of(context).devicePixelRatio;
           final monday = mondayForAcademicWeek(app.termStart, app.selectedWeek);
           final sunday = monday.add(const Duration(days: 6));
+          final semester = app.currentSemester;
           final visible = dynamicDisplay
               ? app
                   .effectiveCoursesForWeek(app.selectedWeek)
@@ -163,9 +162,10 @@ class WeekPage extends StatelessWidget {
                             ),
                           ),
                         if (currentWeek == app.selectedWeek)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 4),
-                            child: Text(
+                          SizedBox(
+                            width: 48,
+                            child: Center(
+                                child: Text(
                               '本周',
                               key: const Key('week-current-marker'),
                               style: TextStyle(
@@ -173,56 +173,35 @@ class WeekPage extends StatelessWidget {
                                 fontWeight: FontWeight.w700,
                                 color: Theme.of(context).colorScheme.primary,
                               ),
-                            ),
+                            )),
                           ),
-                        IconButton(
-                          tooltip: '同步教务与 Canvas',
-                          onPressed: () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => PortalSyncPage(
-                                username: app.username,
-                                password: '',
-                                app: app,
-                                rememberMe: app.rememberMe,
-                              ),
-                            ),
-                          ),
-                          color: app.themeChoice
-                              .primaryFor(Theme.of(context).brightness),
-                          icon: const Icon(Icons.sync_rounded),
-                        ),
                       ]),
                     ),
                   )
                 else
                   Padding(
                     padding: const EdgeInsets.fromLTRB(14, 10, 8, 8),
-                    child: Row(children: [
-                      Expanded(
-                          child: Text('学期课表',
+                    child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        child: Row(children: [
+                          Text('学期课表',
                               key: const Key('semester-timetable-title'),
                               style: TextStyle(
                                   fontSize: 19,
                                   fontWeight: FontWeight.w800,
                                   color:
-                                      Theme.of(context).colorScheme.primary))),
-                      IconButton(
-                        tooltip: '同步教务与 Canvas',
-                        onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => PortalSyncPage(
-                              username: app.username,
-                              password: '',
-                              app: app,
-                              rememberMe: app.rememberMe,
-                            ),
-                          ),
-                        ),
-                        color: app.themeChoice
-                            .primaryFor(Theme.of(context).brightness),
-                        icon: const Icon(Icons.sync_rounded),
-                      ),
-                    ]),
+                                      Theme.of(context).colorScheme.primary)),
+                          const SizedBox(width: 10),
+                          if (semester != null)
+                            Expanded(
+                                child: Text(
+                              '${DateFormat('M.d').format(semester.startDate)}–${DateFormat('M.d').format(semester.endDate)}',
+                              key: const Key('semester-date-range'),
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  color: Theme.of(context).colorScheme.primary),
+                            )),
+                        ])),
                   ),
                 Expanded(
                   child: Stack(
@@ -294,9 +273,35 @@ class WeekPage extends StatelessWidget {
                                   width: 48, height: 48),
                               iconSize: 24,
                               color: Theme.of(context).colorScheme.primary,
-                              icon: Icon(dynamicDisplay
-                                  ? Icons.event_repeat_rounded
-                                  : Icons.grid_view_rounded),
+                              // Reuse option 2's original 28/24/13 geometry.
+                              icon: SizedBox(
+                                  width: 28,
+                                  height: 28,
+                                  child: Stack(children: [
+                                    const Positioned(
+                                        left: 0,
+                                        top: 0,
+                                        child: Icon(
+                                            Icons.calendar_month_rounded,
+                                            size: 24)),
+                                    Positioned(
+                                        right: 0,
+                                        bottom: 0,
+                                        child: DecoratedBox(
+                                          decoration: BoxDecoration(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .surfaceContainerLow,
+                                              shape: BoxShape.circle),
+                                          child: Padding(
+                                              padding: const EdgeInsets.all(1),
+                                              child: Icon(
+                                                  dynamicDisplay
+                                                      ? Icons.schedule_rounded
+                                                      : Icons.layers_rounded,
+                                                  size: 13)),
+                                        )),
+                                  ])),
                             ),
                           ),
                         ),
@@ -649,7 +654,14 @@ class _TimetableState extends State<_Timetable> {
                         height: blankLines * titleLineHeight,
                       ),
                     if (course.location.isNotEmpty) ...[
-                      SizedBox(height: compact ? 2 : 4),
+                      SizedBox(
+                          height: widget.showWeeks
+                              ? MediaQuery.textScalerOf(context)
+                                      .scale(compact ? 8.2 : 9) *
+                                  1.1
+                              : compact
+                                  ? 2
+                                  : 4),
                       Text(
                         _locationLines(course.location),
                         softWrap: true,
@@ -661,7 +673,19 @@ class _TimetableState extends State<_Timetable> {
                       ),
                     ],
                     if (course.teacher.isNotEmpty) ...[
-                      SizedBox(height: compact ? 2 : 4),
+                      SizedBox(
+                          height: widget.showWeeks
+                              ? MediaQuery.textScalerOf(context)
+                                      .scale(compact ? 8.2 : 9) *
+                                  1.1
+                              : course.location.isNotEmpty
+                                  ? MediaQuery.textScalerOf(context)
+                                          .scale(compact ? 8.2 : 9) *
+                                      1.1 *
+                                      2
+                                  : compact
+                                      ? 2
+                                      : 4),
                       Text(
                         _teacherLines(course.teacher),
                         softWrap: true,
@@ -673,7 +697,10 @@ class _TimetableState extends State<_Timetable> {
                       ),
                     ],
                     if (widget.showWeeks) ...[
-                      const SizedBox(height: 3),
+                      SizedBox(
+                          height: MediaQuery.textScalerOf(context)
+                                  .scale(compact ? 8.2 : 9) *
+                              1.1),
                       Text(
                         semesterCourseWeeks(course),
                         key: ValueKey('course-weeks-${course.id}'),

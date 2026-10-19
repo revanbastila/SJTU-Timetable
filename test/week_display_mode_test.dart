@@ -84,15 +84,11 @@ void main() {
       for (final dynamicDisplay in [false, true]) {
         await app.setDynamicWeekDisplay(dynamicDisplay);
         await tester.pumpAndSettle();
+        expect(find.byIcon(Icons.calendar_month_rounded), findsOneWidget);
         expect(
-            (tester
-                    .widget<IconButton>(
-                        find.byKey(const Key('week-display-switch')))
-                    .icon as Icon)
-                .icon,
-            dynamicDisplay
-                ? Icons.event_repeat_rounded
-                : Icons.grid_view_rounded);
+            find.byIcon(
+                dynamicDisplay ? Icons.schedule_rounded : Icons.layers_rounded),
+            findsOneWidget);
         final label = find.byKey(Key(
             dynamicDisplay ? 'week-date-range' : 'semester-timetable-title'));
         final theme = Theme.of(tester.element(label));
@@ -174,13 +170,13 @@ void main() {
     expect(find.byType(Switch), findsNothing);
     expect(find.text('动态显示'), findsNothing);
     expect(find.text('静态显示'), findsNothing);
-    expect(find.byIcon(Icons.event_repeat_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.schedule_rounded), findsOneWidget);
     expect(find.byTooltip('切换为静态课表'), findsOneWidget);
-    expect(find.byIcon(Icons.sync_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.sync_rounded), findsNothing);
     await tester.tapAt(initial.topLeft + const Offset(3, 24));
     await tester.pumpAndSettle();
     expect(app.dynamicWeekDisplay, isFalse);
-    expect(find.byIcon(Icons.grid_view_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.layers_rounded), findsOneWidget);
     expect(find.byTooltip('切换为动态课表'), findsOneWidget);
     expect(find.text('学期课表'), findsOneWidget);
     final staticArea =
@@ -189,7 +185,7 @@ void main() {
     await tester.tap(button);
     await tester.pumpAndSettle();
     expect(app.dynamicWeekDisplay, isTrue);
-    expect(find.byIcon(Icons.event_repeat_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.schedule_rounded), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     app.dispose();
@@ -328,19 +324,12 @@ void main() {
       );
       expect(current.left, greaterThanOrEqualTo(date.right));
       expect(current.center.dy, closeTo(date.center.dy, 2));
-      expect(find.byIcon(Icons.sync_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.sync_rounded), findsNothing);
 
       await tester.tap(find.byKey(const Key('week-display-switch')));
       await tester.pumpAndSettle();
       expect(find.text('动态显示'), findsNothing);
-      expect(
-        (tester
-                .widget<IconButton>(
-                    find.byKey(const Key('week-display-switch')))
-                .icon as Icon)
-            .icon,
-        Icons.grid_view_rounded,
-      );
+      expect(find.byIcon(Icons.layers_rounded), findsOneWidget);
       expect(find.text('学期课表'), findsOneWidget);
       expect(find.byType(DropdownButton<int>), findsNothing);
       expect(find.byKey(const Key('week-date-range')), findsNothing);

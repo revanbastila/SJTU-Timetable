@@ -1,3 +1,4 @@
+import '../widgets/settings_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -205,20 +206,14 @@ class SettingsPageState extends State<SettingsPage> {
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
                     subtitle: Text('每 ${app.refreshMinutes} 分钟检查一次课表'),
-                    trailing: DropdownButton<int>(
+                    trailing: SettingsDropdown<int>(
+                      key: const Key('settings-refresh-menu'),
                       value: app.refreshMinutes,
-                      underline: const SizedBox(),
-                      items: const [15, 30, 60, 120]
-                          .map(
-                            (value) => DropdownMenuItem(
-                              value: value,
-                              child: Text('$value分'),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value != null) app.setRefreshMinutes(value);
+                      options: {
+                        for (final value in [15, 30, 60, 120])
+                          value: '$value 分钟'
                       },
+                      onChanged: app.setRefreshMinutes,
                     ),
                   ),
                 ],
@@ -373,26 +368,14 @@ class SettingsPageState extends State<SettingsPage> {
                       '界面模式',
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
-                    trailing: DropdownButton<InterfaceMode>(
+                    trailing: SettingsDropdown<InterfaceMode>(
+                      key: const Key('settings-interface-menu'),
                       value: app.interfaceMode,
-                      underline: const SizedBox(),
-                      alignment: AlignmentDirectional.centerEnd,
-                      items: [
+                      options: {
                         for (final mode in InterfaceMode.values)
-                          DropdownMenuItem(
-                            value: mode,
-                            child: SizedBox(
-                              width: 76,
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: Text(mode.label),
-                              ),
-                            ),
-                          ),
-                      ],
-                      onChanged: (mode) {
-                        if (mode != null) app.setInterfaceMode(mode);
+                          mode: mode.label
                       },
+                      onChanged: app.setInterfaceMode,
                     ),
                   ),
                   const Divider(height: 1),
@@ -473,20 +456,13 @@ class SettingsPageState extends State<SettingsPage> {
                       '提前时间',
                       style: TextStyle(fontWeight: FontWeight.w700),
                     ),
-                    trailing: DropdownButton<int>(
+                    trailing: SettingsDropdown<int>(
+                      key: const Key('settings-reminder-menu'),
                       value: app.reminderMinutes,
-                      underline: const SizedBox(),
-                      items: const [5, 10, 15, 30]
-                          .map(
-                            (value) => DropdownMenuItem(
-                              value: value,
-                              child: Text('$value 分钟'),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value != null) app.setReminderMinutes(value);
+                      options: {
+                        for (final value in [5, 10, 15, 30]) value: '$value 分钟'
                       },
+                      onChanged: app.setReminderMinutes,
                     ),
                   ),
                 ],

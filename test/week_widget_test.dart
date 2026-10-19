@@ -1,3 +1,4 @@
+import 'package:jiaotong_course/widgets/settings_dropdown.dart';
 import 'support/memory_database.dart';
 import 'package:jiaotong_course/models/common_website.dart';
 import 'package:flutter/material.dart';
@@ -224,14 +225,12 @@ void main() {
         home: Scaffold(body: SettingsPage(app: app, advanced: true)),
       ),
     );
-    final dropdown = find.byType(DropdownButton<InterfaceMode>);
+    final dropdown = find.byType(SettingsDropdown<InterfaceMode>);
     await tester.ensureVisible(dropdown);
-    final button = tester.widget<DropdownButton<InterfaceMode>>(dropdown);
-    expect(
-      button.items!.map((item) => (item.child as SizedBox).width),
-      everyElement(76),
-    );
-    expect(button.alignment, AlignmentDirectional.centerEnd);
+    final trigger = tester.getRect(dropdown);
+    expect(trigger.width, 100);
+    final tile = find.ancestor(of: dropdown, matching: find.byType(ListTile));
+    expect(trigger.right, tester.getRect(tile).right);
     expect(InterfaceMode.system.label, '系统');
     expect(InterfaceMode.light.label, '浅色');
     expect(InterfaceMode.dark.label, '深色');
@@ -622,8 +621,8 @@ void main() {
         home: Scaffold(body: WeekPage(app: app)),
       ),
     );
-    expect(find.byIcon(Icons.sync_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.event_repeat_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.sync_rounded), findsNothing);
+    expect(find.byIcon(Icons.schedule_rounded), findsOneWidget);
     final weekPicker = tester.widget<DropdownButton<int>>(
       find.byType(DropdownButton<int>),
     );

@@ -1,3 +1,5 @@
+import 'package:jiaotong_course/models/teaching_calendar.dart';
+import 'semester_calendar_test.dart' show sample;
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -6,6 +8,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:jiaotong_course/pages/week_page.dart';
+import 'package:jiaotong_course/pages/settings_page.dart';
 import 'package:jiaotong_course/state/app_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,6 +22,7 @@ void main() {
     await tester.runAsync(() async {
       final fonts = {
         'PreviewChinese': File('C:/Windows/Fonts/msyh.ttc'),
+        'Ahem': File('C:/Windows/Fonts/msyh.ttc'),
         'MaterialIcons': File(
             '../../work/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf'),
       };
@@ -38,6 +42,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final app = AppController(QuietNotifications(),
         database: MemoryDatabase(), calendarClock: () => DateTime(2030, 1, 9))
+      ..teachingCalendar = TeachingCalendar.parse(sample())
       ..termStart = DateTime(2030, 1, 7)
       ..selectedWeek = 1
       ..courses = [
@@ -67,13 +72,44 @@ void main() {
           final picture = await boundary.toImage(pixelRatio: 2);
           final bytes =
               await picture.toByteData(format: ui.ImageByteFormat.png);
-          final output = Directory('../../work/previews-1.14.24a');
+          final output = Directory('../../work/previews-1.14.25');
           await output.create(recursive: true);
           await File(
                   '${output.path}/${brightness.name}-${dynamicDisplay ? 'dynamic' : 'static'}.png')
               .writeAsBytes(bytes!.buffer.asUint8List());
           picture.dispose();
         });
+      }
+    }
+    for (final brightness in [Brightness.light, Brightness.dark]) {
+      await tester.pumpWidget(RepaintBoundary(
+          key: const Key('settings-preview'),
+          child: MaterialApp(
+              theme: ThemeData(
+                  fontFamily: 'PreviewChinese',
+                  colorScheme: ColorScheme.fromSeed(
+                      seedColor: Colors.blue, brightness: brightness)),
+              home: Scaffold(body: SettingsPage(app: app, advanced: true)))));
+      for (final menu in ['refresh', 'interface', 'reminder']) {
+        final trigger = find.byKey(Key('settings-$menu-menu'));
+        await tester.ensureVisible(trigger);
+        await tester.pumpAndSettle();
+        await tester.tap(trigger);
+        await tester.pumpAndSettle();
+        final boundary = tester.renderObject<RenderRepaintBoundary>(
+            find.byKey(const Key('settings-preview')));
+        await tester.runAsync(() async {
+          final picture = await boundary.toImage(pixelRatio: 2);
+          final bytes =
+              await picture.toByteData(format: ui.ImageByteFormat.png);
+          await File(
+                  '../../work/previews-1.14.25/settings-${brightness.name}-$menu.png')
+              .writeAsBytes(bytes!.buffer.asUint8List());
+          picture.dispose();
+        });
+        Navigator.of(tester.element(trigger)).pop();
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
       }
     }
     await tester.pumpWidget(const SizedBox.shrink());
