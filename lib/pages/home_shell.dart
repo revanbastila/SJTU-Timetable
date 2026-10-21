@@ -5,6 +5,7 @@ import '../state/app_controller.dart';
 import '../widgets/session_sync_agent.dart';
 import '../widgets/draggable_unread_badge.dart';
 import '../widgets/canvas_announcement_observer.dart';
+import '../widgets/attendance_observer.dart';
 import 'home_page.dart';
 import 'settings_page.dart';
 import 'week_page.dart';
@@ -35,7 +36,8 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
-    _firstCanvasSyncPending = widget.showInitialCanvasHint &&
+    _firstCanvasSyncPending =
+        widget.showInitialCanvasHint &&
         widget.initializeCanvas &&
         widget.app.canvas.courses.isEmpty;
     widget.app.addListener(_checkFirstCanvasSync);
@@ -64,9 +66,9 @@ class _HomeShellState extends State<HomeShell> {
     if (!mounted) return;
     if (!success) _firstCanvasSyncPending = false;
     if (!success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Canvas 暂未完成同步，课表仍可正常使用。')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Canvas 暂未完成同步，课表仍可正常使用。')));
     }
   }
 
@@ -87,99 +89,117 @@ class _HomeShellState extends State<HomeShell> {
       // Background listeners must not determine the visible tab area's size.
       // Background observers build zero-size widgets; loose sizing otherwise
       // collapses every Positioned tab to zero width and height.
-      body: Stack(fit: StackFit.expand, children: [
-        CanvasAnnouncementObserver(app: widget.app),
-        Positioned.fill(child: IndexedStack(index: _index, children: pages)),
-        Positioned(
-            right: 0, bottom: 0, child: SessionSyncAgent(app: widget.app)),
-        Positioned(
-          left: 12,
-          right: 12,
-          bottom: 8,
-          child: AnimatedBuilder(
-            animation: widget.app,
-            builder: (context, _) {
-              if (!_firstCanvasSyncPending ||
-                  widget.app.canvasSyncStage == CanvasSyncStage.idle ||
-                  widget.app.canvasSyncStage == CanvasSyncStage.complete ||
-                  widget.app.canvasSyncStage == CanvasSyncStage.failed ||
-                  !widget.app.refreshing) {
-                return const SizedBox.shrink();
-              }
-              return Material(
-                color: Theme.of(context).colorScheme.surface,
-                elevation: 2,
-                borderRadius: BorderRadius.circular(10),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  child: Row(children: [
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Theme.of(context).colorScheme.primary),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        widget.app.canvasSyncStage == CanvasSyncStage.details
-                            ? '课程 Canvas 信息仍在后台自动加载，课程表功能已可以正常使用'
-                            : '${widget.app.canvasSyncMessage}，课程表功能已可以正常使用',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  ]),
-                ),
-              );
-            },
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          CanvasAnnouncementObserver(app: widget.app),
+          AttendanceObserver(app: widget.app),
+          Positioned.fill(
+            child: IndexedStack(index: _index, children: pages),
           ),
-        ),
-      ]),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: SessionSyncAgent(app: widget.app),
+          ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 8,
+            child: AnimatedBuilder(
+              animation: widget.app,
+              builder: (context, _) {
+                if (!_firstCanvasSyncPending ||
+                    widget.app.canvasSyncStage == CanvasSyncStage.idle ||
+                    widget.app.canvasSyncStage == CanvasSyncStage.complete ||
+                    widget.app.canvasSyncStage == CanvasSyncStage.failed ||
+                    !widget.app.refreshing) {
+                  return const SizedBox.shrink();
+                }
+                return Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  elevation: 2,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            widget.app.canvasSyncStage ==
+                                    CanvasSyncStage.details
+                                ? '课程 Canvas 信息仍在后台自动加载，课程表功能已可以正常使用'
+                                : '${widget.app.canvasSyncMessage}，课程表功能已可以正常使用',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
       bottomNavigationBar: AnimatedBuilder(
         animation: widget.app,
         builder: (context, _) {
           return Material(
             key: const Key('home-bottom-navigation'),
-            color: widget.app.themeChoice
-                .scheduleChromeFor(Theme.of(context).brightness),
+            color: widget.app.themeChoice.scheduleChromeFor(
+              Theme.of(context).brightness,
+            ),
             child: SafeArea(
               top: false,
               child: SizedBox(
                 height: 76,
-                child: Row(children: [
-                  Expanded(
-                    child: _SideDestination(
-                      label: '日程',
-                      icon: Icons.today_outlined,
-                      selectedIcon: Icons.today,
-                      selected: _index == 0,
-                      count: widget.app.unreadMessageCount,
-                      onBadgeSwipe: widget.app.markAllMessagesRead,
-                      onTap: () => _select(0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _SideDestination(
+                        label: '日程',
+                        icon: Icons.today_outlined,
+                        selectedIcon: Icons.today,
+                        selected: _index == 0,
+                        count: widget.app.unreadMessageCount,
+                        onBadgeSwipe: widget.app.markAllMessagesRead,
+                        onTap: () => _select(0),
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: _SideDestination(
-                      label: '周课表',
-                      icon: Icons.calendar_view_week_outlined,
-                      selectedIcon: Icons.calendar_view_week,
-                      selected: _index == 1,
-                      weekGrid: true,
-                      onTap: () => _select(1),
+                    Expanded(
+                      child: _SideDestination(
+                        label: '周课表',
+                        icon: Icons.calendar_view_week_outlined,
+                        selectedIcon: Icons.calendar_view_week,
+                        selected: _index == 1,
+                        weekGrid: true,
+                        onTap: () => _select(1),
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: _SideDestination(
-                      label: '我的',
-                      icon: Icons.person_outline_rounded,
-                      selectedIcon: Icons.person_rounded,
-                      selected: _index == 2,
-                      onTap: () => _select(2),
+                    Expanded(
+                      child: _SideDestination(
+                        label: '我的',
+                        icon: Icons.person_outline_rounded,
+                        selectedIcon: Icons.person_rounded,
+                        selected: _index == 2,
+                        onTap: () => _select(2),
+                      ),
                     ),
-                  ),
-                ]),
+                  ],
+                ),
               ),
             ),
           );
@@ -246,22 +266,28 @@ class _SideDestination extends StatelessWidget {
     );
     return InkWell(
       onTap: onTap,
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        if (onBadgeSwipe != null)
-          DraggableUnreadBadge(
-            count: count,
-            onDismiss: onBadgeSwipe!,
-            child: animatedIcon,
-          )
-        else
-          animatedIcon,
-        const SizedBox(height: 4),
-        Text(label,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (onBadgeSwipe != null)
+            DraggableUnreadBadge(
+              count: count,
+              onDismiss: onBadgeSwipe!,
+              child: animatedIcon,
+            )
+          else
+            animatedIcon,
+          const SizedBox(height: 4),
+          Text(
+            label,
             style: TextStyle(
-                color: color,
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
-      ]),
+              color: color,
+              fontSize: 12,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

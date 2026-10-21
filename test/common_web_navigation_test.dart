@@ -52,6 +52,7 @@ class BrowserController extends PlatformWebViewController
   final scripts = <String>[];
   bool clickSsoOnContent = false;
   bool loginForm = false;
+  String? nativeUrlOverride;
   Completer<Object>? inspectionGate;
   @override
   Future<void> setJavaScriptMode(JavaScriptMode mode) async {}
@@ -94,7 +95,7 @@ class BrowserController extends PlatformWebViewController
   }
 
   @override
-  Future<String?> currentUrl() async => url;
+  Future<String?> currentUrl() async => nativeUrlOverride ?? url;
   @override
   Future<void> runJavaScript(String script) async {}
   @override
@@ -106,7 +107,8 @@ class BrowserController extends PlatformWebViewController
         inspectionGate = null;
         return gate.future;
       }
-      return jsonEncode({'hasPassword': loginForm, 'hasChallenge': false});
+      return jsonEncode(
+          {'href': url, 'hasPassword': loginForm, 'hasChallenge': false});
     }
     if (script.contains('const positive') || script.contains('const scored')) {
       ssoChecks++;
@@ -237,6 +239,73 @@ void main() {
           description: 'fixture network offline',
           isForMainFrame: true,
           url: url));
+
+  testWidgets(
+      'SSO inspection uses document URL instead of transient native blank',
+      (tester) async {
+    final c =
+        await open(tester, commonWebsites.firstWhere((s) => s.name == '水源社区'));
+    c.nativeUrlOverride = 'about:blank';
+    await c.navigate('https://shuiyuan.sjtu.edu.cn/t/fixture/100',
+        finish: true);
+    await settle(tester);
+    expect(find.text('登录跳转异常，请重试'), findsNothing);
+    expect(find.text('重试'), findsNothing);
+    final opacity = tester.widget<Opacity>(find
+        .ancestor(
+            of: find.byType(web.WebViewWidget), matching: find.byType(Opacity))
+        .first);
+    expect(opacity.opacity, 1);
+    expect(c.loads.length, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+      'Shuiyuan HTTP callback upgrades exact destination before inspection',
+      (tester) async {
+    final c =
+        await open(tester, commonWebsites.firstWhere((s) => s.name == '水源社区'));
+    const callback =
+        'http://shuiyuan.sjtu.edu.cn/auth/oauth2_basic/callback?code=fixture&state=fixture';
+    await c.navigate(callback, finish: true);
+    await tester.pump();
+    expect(c.url, callback.replaceFirst('http:', 'https:'));
+    expect(c.loads.last, callback.replaceFirst('http:', 'https:'));
+    c.delegate.finished?.call(c.url);
+    await settle(tester);
+    expect(find.text('重试'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets(
+      'SSO snapshots preserve auth boundaries and real blank transitions',
+      (tester) async {
+    final c =
+        await open(tester, commonWebsites.firstWhere((s) => s.name == '水源社区'));
+    final auth = SchoolWebAuthenticator(web.WebViewController.fromPlatform(c));
+    c.nativeUrlOverride = 'https://shuiyuan.sjtu.edu.cn/';
+    c.url = 'https://outside.example/login';
+    c.loginForm = true;
+    var result = await auth.inspect('shuiyuan.sjtu.edu.cn');
+    expect(result.kind, SchoolPageKind.outside);
+    expect(result.uri!.host, 'outside.example');
+    c.nativeUrlOverride = 'about:blank';
+    c.url = 'https://jaccount.sjtu.edu.cn/oauth2/login';
+    result = await auth.inspect('shuiyuan.sjtu.edu.cn');
+    expect(result.kind, SchoolPageKind.login);
+    expect(result.uri!.host, 'jaccount.sjtu.edu.cn');
+    c.url = 'about:blank';
+    result = await auth.inspect('shuiyuan.sjtu.edu.cn');
+    expect(result.kind, SchoolPageKind.transition);
+    c.loginForm = false;
+    c.url = 'http://shuiyuan.sjtu.edu.cn/t/123';
+    expect((await auth.inspect('shuiyuan.sjtu.edu.cn')).kind,
+        SchoolPageKind.outside);
+    c.url = 'http://mail.sjtu.edu.cn/modern/';
+    expect((await auth.inspect('mail.sjtu.edu.cn', allowHttpTarget: true)).kind,
+        SchoolPageKind.target);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   testWidgets(
       'repro: Shuiyuan content never re-enters automatic SSO after initial session ready',
@@ -429,6 +498,61 @@ void main() {
     expect(c.scripts.length, 4);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  for (final brightness in Brightness.values) {
+    testWidgets(
+        'central horizontal content swipe is not back: ${brightness.name}',
+        (tester) async {
+      final c = await open(
+          tester, commonWebsites.firstWhere((s) => s.name == '水源社区'),
+          brightness: brightness);
+      await c.navigate('https://shuiyuan.sjtu.edu.cn/t/topic/1', finish: true);
+      await settle(tester);
+      await c.navigate('https://shuiyuan.sjtu.edu.cn/t/topic/2', finish: true);
+      await settle(tester);
+      await tester.dragFrom(
+          tester.getTopLeft(find.byType(web.WebViewWidget)) +
+              const Offset(200, 200),
+          const Offset(150, 0));
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(c.url, 'https://shuiyuan.sjtu.edu.cn/t/topic/2');
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+    testWidgets(
+        'external links stay visible and retry exactly: ${brightness.name}',
+        (tester) async {
+      final c = await open(
+          tester, commonWebsites.firstWhere((s) => s.name == '水源社区'),
+          brightness: brightness);
+      await c.navigate('https://shuiyuan.sjtu.edu.cn/t/topic/123',
+          finish: true);
+      await settle(tester);
+      const external = 'https://external.example/article?id=123';
+      await c.navigate(external);
+      fail(c, external);
+      await tester.pump();
+      await tester.tap(find.text('重试'));
+      await tester.pump();
+      c.loginForm =
+          true; // An external password form must not receive school credentials.
+      c.delegate.finished?.call(external);
+      await settle(tester);
+      await tester.pump(const Duration(seconds: 11));
+      expect(c.url, external);
+      expect(c.loads.last, external);
+      expect(find.text('重试'), findsNothing);
+      final opacity = tester.widget<Opacity>(find
+          .ancestor(
+              of: find.byType(web.WebViewWidget),
+              matching: find.byType(Opacity))
+          .first);
+      expect(opacity.opacity, 1);
+      expect(c.scripts.any((s) => s.contains('setValue(u,')), isFalse);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 
   testWidgets('explicit account and SPA login routes still select existing SSO',
       (tester) async {

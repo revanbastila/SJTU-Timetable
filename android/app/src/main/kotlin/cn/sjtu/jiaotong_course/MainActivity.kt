@@ -23,15 +23,32 @@ class MainActivity : FlutterActivity() {
     private val locationRequestCode = 7103
     private var pendingLocationResult: MethodChannel.Result? = null
     private var widgetChannel: MethodChannel? = null
+    private var attendanceFrames: AttendanceFrameCapture? = null
+    private val attendancePermissionCode = 7127
+    private var pendingAttendancePermission: MethodChannel.Result? = null
+    private var attendanceTimeReceiver: android.content.BroadcastReceiver? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         persistWidgetCourseIntent(intent)
         super.onCreate(savedInstanceState)
+        configureWebDiagnostics(intent)
+    }
+
+    private fun configureWebDiagnostics(source: Intent?) {
+        // Explicit local ADB test launch only. Normal starts keep it disabled.
+        WebView.setWebContentsDebuggingEnabled(
+            packageName == "cn.sjtu.jiaotong_course.slimtest.a" &&
+                source?.getBooleanExtra("codex_web_diagnostics", false) == true)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        configureWebDiagnostics(intent)
+        if (intent.hasExtra(AttendanceSync.EXTRA_PENDING)) {
+            AttendanceSync.openPending()
+            intent.removeExtra(AttendanceSync.EXTRA_PENDING)
+        }
         val courseId = persistWidgetCourseIntent(intent)
         if (courseId != null) {
             getSharedPreferences(TimetableWidgetProvider.PREFS, MODE_PRIVATE)
@@ -127,6 +144,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onPause() {
+        AttendanceSync.foreground(this, false)
         updateBridge.onPause()
         CookieManager.getInstance().flush()
         super.onPause()
@@ -134,16 +152,39 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+        AttendanceSync.foreground(this, true)
         updateBridge.onResume()
     }
 
     override fun onDestroy() {
+        attendanceTimeReceiver?.let { unregisterReceiver(it) }
+        attendanceTimeReceiver = null
+        attendanceFrames?.dispose()
+        attendanceFrames = null
+        pendingAttendancePermission?.success(false)
+        pendingAttendancePermission = null
         updateBridge.dispose()
         super.onDestroy()
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        attendanceFrames = AttendanceFrameCapture(this,flutterEngine).also {
+            AttendanceSync.bind(this,flutterEngine.dartExecutor.binaryMessenger,it)
+        }
+        attendanceTimeReceiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(context: android.content.Context?, intent: Intent?) {
+                AttendanceSync.timeChanged()
+            }
+        }.also {
+            val filter = android.content.IntentFilter().apply {
+                addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_TIMEZONE_CHANGED)
+                addAction(Intent.ACTION_DATE_CHANGED)
+            }
+            if (Build.VERSION.SDK_INT >= 33) registerReceiver(it,filter,android.content.Context.RECEIVER_NOT_EXPORTED)
+            else registerReceiver(it,filter)
+        }
         CanvasAnnouncementSync.bind(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger,
             "cn.sjtu.jiaotong_course/updates").setMethodCallHandler(updateBridge::handle)
@@ -271,9 +312,25 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == attendancePermissionCode) {
+            pendingAttendancePermission?.success(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+            pendingAttendancePermission = null
+            return
+        }
         if (requestCode != locationRequestCode) return
         val granted = grantResults.any { it == PackageManager.PERMISSION_GRANTED }
         pendingLocationResult?.success(granted)
         pendingLocationResult = null
+    }
+
+    fun requestAttendanceNotificationPermission(result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            result.success(getSystemService(android.app.NotificationManager::class.java).areNotificationsEnabled()); return
+        }
+        val p = getSharedPreferences("attendance_permission",MODE_PRIVATE)
+        if (pendingAttendancePermission != null || p.getBoolean("asked",false)) { result.success(false); return }
+        p.edit().putBoolean("asked",true).apply()
+        pendingAttendancePermission = result
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),attendancePermissionCode)
     }
 }

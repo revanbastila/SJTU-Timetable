@@ -17,6 +17,8 @@ import '../services/notification_service.dart';
 import '../services/canvas_announcement_sync.dart';
 import '../models/teaching_calendar.dart';
 import '../services/teaching_calendar_repository.dart';
+import '../services/attendance_controller.dart';
+import '../services/attendance_native.dart';
 
 class SyncBundle {
   const SyncBundle(this.courses, this.canvas);
@@ -43,7 +45,9 @@ class AppController extends ChangeNotifier {
     CredentialStore? credentialStore,
     TeachingCalendarRepository? calendarRepository,
     DateTime Function()? calendarClock,
-  })  : database = database ?? AppDatabase(),
+    AttendanceController? attendance,
+  })  : _attendance = attendance,
+        database = database ?? AppDatabase(),
         calendarRepository = calendarRepository ?? TeachingCalendarRepository(),
         _calendarClock = calendarClock ?? shanghaiNow,
         credentialStore = credentialStore ?? SecureCredentialStore();
@@ -59,6 +63,12 @@ class AppController extends ChangeNotifier {
   bool _calendarSyncStarted = false;
   String? _lastCalendarDay;
   bool _disposed = false;
+  NativeAttendanceBackend? _attendanceBackend;
+  AttendanceController? _attendance;
+  NativeAttendanceBackend get attendanceBackend =>
+      _attendanceBackend ??= NativeAttendanceBackend();
+  AttendanceController get attendance =>
+      _attendance ??= AttendanceController(backend: attendanceBackend);
   final AppDatabase database;
   final CredentialStore credentialStore;
   List<Course> courses = [];
@@ -140,7 +150,9 @@ class AppController extends ChangeNotifier {
           await prefs.setString('studentCollege_$account', cleanCollege);
         }
         await prefs.setString(
-            'studentProfileSource_$account', _verifiedProfileSource);
+          'studentProfileSource_$account',
+          _verifiedProfileSource,
+        );
       }
     } catch (error) {
       debugPrint(
@@ -217,9 +229,7 @@ class AppController extends ChangeNotifier {
   Future<void> markAllMessagesRead() async {
     if (username.isEmpty) return;
     final before = _readMessageIds.length;
-    _readMessageIds.addAll(
-      messageFeed.map((entry) => _messageId(entry.key)),
-    );
+    _readMessageIds.addAll(messageFeed.map((entry) => _messageId(entry.key)));
     if (_readMessageIds.length == before) return;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
@@ -295,8 +305,8 @@ class AppController extends ChangeNotifier {
     return [
       for (var offset = 0; offset < 7; offset++)
         ...getEffectiveCoursesForDate(
-                DateTime(monday.year, monday.month, monday.day + offset))
-            .map((course) => course.copyWith(weekday: offset + 1))
+          DateTime(monday.year, monday.month, monday.day + offset),
+        ).map((course) => course.copyWith(weekday: offset + 1)),
     ];
   }
 
@@ -306,8 +316,10 @@ class AppController extends ChangeNotifier {
     _lastCalendarDay = calendarDateKey(_calendarClock());
     _logCalendarState('startup cache');
     unawaited(refreshTeachingCalendar());
-    _calendarRefreshTimer = Timer.periodic(const Duration(minutes: 30),
-        (_) => unawaited(refreshTeachingCalendar()));
+    _calendarRefreshTimer = Timer.periodic(
+      const Duration(minutes: 30),
+      (_) => unawaited(refreshTeachingCalendar()),
+    );
     _scheduleCalendarMidnight();
   }
 
@@ -332,11 +344,13 @@ class AppController extends ChangeNotifier {
       final delay = const [
         Duration(seconds: 15),
         Duration(minutes: 1),
-        Duration(minutes: 5)
+        Duration(minutes: 5),
       ][_calendarRetries++];
       _calendarRetryTimer?.cancel();
-      _calendarRetryTimer =
-          Timer(delay, () => unawaited(refreshTeachingCalendar()));
+      _calendarRetryTimer = Timer(
+        delay,
+        () => unawaited(refreshTeachingCalendar()),
+      );
       debugPrint('[calendar] retry scheduled in ${delay.inSeconds}s');
     } else if (calendarRepository.lastRefreshSucceeded) {
       _calendarRetries = 0;
@@ -367,14 +381,16 @@ class AppController extends ChangeNotifier {
   void _logCalendarState(String stage) {
     final today = shanghaiNow();
     debugPrint(
-        '[calendar] $stage version=${teachingCalendar.version} updated_at=${teachingCalendar.updatedAt} rules loaded=${teachingCalendar.rules.length} '
-        'academic_year=${teachingCalendar.academicYear} semester=${currentSemester?.id ?? "fallback"} '
-        'first_week_start=${calendarDateKey(termStart)} total_weeks=$totalWeeks '
-        'exam_weeks=$examWeeks current_week=$currentAcademicWeekInTerm');
+      '[calendar] $stage version=${teachingCalendar.version} updated_at=${teachingCalendar.updatedAt} rules loaded=${teachingCalendar.rules.length} '
+      'academic_year=${teachingCalendar.academicYear} semester=${currentSemester?.id ?? "fallback"} '
+      'first_week_start=${calendarDateKey(termStart)} total_weeks=$totalWeeks '
+      'exam_weeks=$examWeeks current_week=$currentAcademicWeekInTerm',
+    );
     debugPrint(
-        '[calendar] today: ${calendarDateKey(today)} timezone=Asia/Shanghai '
-        'matched rule: ${teachingCalendar.ruleFor(today)?.type ?? "none"} '
-        'effective courses: ${getEffectiveCoursesForDate(today).length} raw courses: ${courses.length}');
+      '[calendar] today: ${calendarDateKey(today)} timezone=Asia/Shanghai '
+      'matched rule: ${teachingCalendar.ruleFor(today)?.type ?? "none"} '
+      'effective courses: ${getEffectiveCoursesForDate(today).length} raw courses: ${courses.length}',
+    );
   }
 
   CanvasCourseData? canvasCourseFor(Course course) =>
@@ -422,6 +438,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> bootstrap() async {
+    await attendance.restore();
     try {
       await notifications.initialize();
     } catch (error, stack) {
@@ -556,13 +573,17 @@ class AppController extends ChangeNotifier {
     if (migrateLegacyCache) {
       try {
         await database.replaceAll(
-            courses, canvas, courseMappings, courseColorValues);
+          courses,
+          canvas,
+          courseMappings,
+          courseColorValues,
+        );
         await prefs.setBool('sqliteCacheMigrated', true);
         for (final key in [
           'courses',
           'canvas',
           'courseColors',
-          'courseSchema'
+          'courseSchema',
         ]) {
           await prefs.remove(key);
         }
@@ -594,10 +615,9 @@ class AppController extends ChangeNotifier {
     final normalizedUsername = value.trim();
     if (username != normalizedUsername) {
       final prefs = await SharedPreferences.getInstance();
-      final verified = prefs.getString(
-            'studentProfileSource_$normalizedUsername',
-          ) ==
-          _verifiedProfileSource;
+      final verified =
+          prefs.getString('studentProfileSource_$normalizedUsername') ==
+              _verifiedProfileSource;
       this.studentNumber = verified
           ? prefs.getString('studentNumber_$normalizedUsername') ?? ''
           : '';
@@ -740,7 +760,9 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> applyAnnouncementUpdates(
-      Map<String, dynamic> data, int generation) async {
+    Map<String, dynamic> data,
+    int generation,
+  ) async {
     if (generation != _sessionGeneration || !loggedIn) return;
     final updated = CanvasAnnouncementSync.merge(canvas, data);
     if (identical(updated, canvas)) return;
@@ -750,7 +772,8 @@ class AppController extends ChangeNotifier {
       await database.saveCanvas(canvas);
     } catch (error) {
       debugPrint(
-          '[canvas-announcements] cache save failed: ${error.runtimeType}');
+        '[canvas-announcements] cache save failed: ${error.runtimeType}',
+      );
     }
   }
 
@@ -918,8 +941,12 @@ class AppController extends ChangeNotifier {
     }
     _lastCalendarDay = day;
     if (!loggedIn || reminderMode == ReminderMode.off) return;
-    await _syncNotificationsSafely(courses, reminderMode,
-        termStart: termStart, totalWeeks: totalWeeks);
+    await _syncNotificationsSafely(
+      courses,
+      reminderMode,
+      termStart: termStart,
+      totalWeeks: totalWeeks,
+    );
   }
 
   Future<void> setReminderMinutes(int value) async {
@@ -990,6 +1017,8 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _completeLogoutCleanup(String signedOutUsername) async {
+    await _attendance?.setEnabled(false);
+    await _attendance?.updateSchedule('', const []);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('rememberMe', false);
@@ -1029,7 +1058,11 @@ class AppController extends ChangeNotifier {
 
   Future<void> _persist() async {
     await database.replaceAll(
-        courses, canvas, courseMappings, courseColorValues);
+      courses,
+      canvas,
+      courseMappings,
+      courseColorValues,
+    );
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('rememberMe', rememberMe);
     await prefs.setString('username', username);
@@ -1118,6 +1151,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _attendance?.dispose();
     _calendarRefreshTimer?.cancel();
     _calendarDayTimer?.cancel();
     _calendarRetryTimer?.cancel();

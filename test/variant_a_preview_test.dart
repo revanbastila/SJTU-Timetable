@@ -72,7 +72,7 @@ void main() {
           final picture = await boundary.toImage(pixelRatio: 2);
           final bytes =
               await picture.toByteData(format: ui.ImageByteFormat.png);
-          final output = Directory('../../work/previews-1.14.25');
+          final output = Directory('../../work/previews-1.14.27');
           await output.create(recursive: true);
           await File(
                   '${output.path}/${brightness.name}-${dynamicDisplay ? 'dynamic' : 'static'}.png')
@@ -90,9 +90,11 @@ void main() {
                   colorScheme: ColorScheme.fromSeed(
                       seedColor: Colors.blue, brightness: brightness)),
               home: Scaffold(body: SettingsPage(app: app, advanced: true)))));
+      await tester.scrollUntilVisible(
+          find.byKey(const Key('settings-refresh-menu')), -250);
       for (final menu in ['refresh', 'interface', 'reminder']) {
         final trigger = find.byKey(Key('settings-$menu-menu'));
-        await tester.ensureVisible(trigger);
+        await tester.scrollUntilVisible(trigger, 250);
         await tester.pumpAndSettle();
         await tester.tap(trigger);
         await tester.pumpAndSettle();
@@ -103,7 +105,7 @@ void main() {
           final bytes =
               await picture.toByteData(format: ui.ImageByteFormat.png);
           await File(
-                  '../../work/previews-1.14.25/settings-${brightness.name}-$menu.png')
+                  '../../work/previews-1.14.27/settings-${brightness.name}-$menu.png')
               .writeAsBytes(bytes!.buffer.asUint8List());
           picture.dispose();
         });
@@ -111,6 +113,20 @@ void main() {
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
       }
+      await tester.scrollUntilVisible(
+          find.byKey(const Key('auto-attendance-settings')), 250);
+      await tester.scrollUntilVisible(find.text('关于'), 150);
+      await tester.pumpAndSettle();
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+          find.byKey(const Key('settings-preview')));
+      await tester.runAsync(() async {
+        final picture = await boundary.toImage(pixelRatio: 2);
+        final bytes = await picture.toByteData(format: ui.ImageByteFormat.png);
+        await File(
+                '../../work/previews-1.14.27/settings-${brightness.name}-attendance.png')
+            .writeAsBytes(bytes!.buffer.asUint8List());
+        picture.dispose();
+      });
     }
     await tester.pumpWidget(const SizedBox.shrink());
     app.dispose();

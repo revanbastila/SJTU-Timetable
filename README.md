@@ -1,30 +1,12 @@
-# 交大课表 1.14.26 · A 分支后续测试版
+# 交大课表 1.14.27.3 · 测试 A
 
-本分支为 `test/1.14.26`，由此前 `test/1.14.24a` 更名，保留 1.14.24a、1.14.25 的迭代历史。正式版本使用 `main` 和正式 Release。
+当前测试版本为 **1.14.27.3（90）**，沿用现有 `test/1.14.26` 分支历史。正式版使用 `main` 和正式 Release。
 
-本版仅修复常用网站共用 WebView 导航：准确重试目标页面，取消过期回调和认证任务，保留网页历史及登录会话。保留 1.14.25 已完成的双日历悬浮按钮、课表间距、学期日期、设置菜单及其他功能。
+- [下载测试 APK](https://github.com/revanbastila/SJTU-Timetable/releases/tag/v1.14.27.3-test)
+- [修改、安装方式和验收限制](docs/TEST-1.14.27.3.md)
 
-## 下载与安装
+本版修复真实学生签到记录读取，增加课前后各10分钟内的后台检测服务，并接入用户确认后的直播识别和受校验约束的提交流程。**完整后台30秒与自动签到端到端链路尚未实测通过**；不能确认二维码任务关联时停止提交。
 
-- [1.14.26 测试 Release](https://github.com/revanbastila/SJTU-Timetable/releases/tag/v1.14.26-test)
-- Android 版本 `1.14.26+82`，包名 `cn.sjtu.jiaotong_course.slimtest.a`，应用名「交大课表·测试A」。沿用测试签名，可覆盖安装 1.14.25 测试 A。
-- 常见手机选择 ARM64，架构不确定选择通用 APK。与正式版独立安装，测试版数据与正式版分开。
+295项测试通过，静态分析无问题；已验证Android16真机多课程手动读取和安装。后台需要必要的常驻通知、系统授权，并受省电与服务时限约束。
 
-## 修改与验证
-
-- [本版发布说明](docs/TEST-1.14.26.md)
-- [根因、代码位置与逐站验收状态](docs/1.14.26-WebView修复与验收.md)
-- 236 项 Flutter 测试、12 项 JavaScript 检查和静态分析通过；真实 Android、网站登录和网络恢复验收按用户安排稍后进行。
-
-## 本地构建
-
-在本机配置 Flutter、Android SDK、JDK 及自己的测试签名后，运行项目脚本：
-
-```powershell
-. ./scripts/project_env.ps1
-flutter analyze --no-pub
-flutter test --no-pub --reporter expanded
-./scripts/build_apk.ps1 -Offline
-```
-
-仓库与发布附件不含签名私钥、账号凭据或构建缓存。不同签名生成的 APK 无法直接覆盖本测试包。
+包名 `cn.sjtu.jiaotong_course.slimtest.a`，沿用测试签名，与正式版独立安装。源码不含签名私钥、账号或会话信息。配置自己的Flutter/Android SDK/JDK和测试签名后可本地构建；不同签名不能覆盖已安装测试包。

@@ -97,6 +97,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
   final Set<String> _libraryScopedHttpFallbacksTried = {};
   final Set<String> _mailHttpsRetries = {};
   final Set<String> _mailHttpAllowed = {};
+  final Set<Uri> _secureTargetUpgrades = {};
   Uri? _mailPendingHttpFallback;
   Uri? _canvasHomeUri;
   bool _canvasDashboardViewCheckInstalled = false;
@@ -109,8 +110,6 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
       widget.mailSite ||
       widget.targetHost == 'yjs.sjtu.edu.cn' ||
       widget.targetHost == 'shuiyuan.sjtu.edu.cn';
-  bool get _graduatePlatform =>
-      widget.targetHost == GraduateNavigation.targetHost;
   WebHistoryPolicy get _historyPolicy => WebHistoryPolicy(
         homeHost: widget.targetHost,
         canvasSite: widget.canvasSite,
@@ -538,6 +537,23 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
       }
       return NavigationDecision.navigate;
     }
+    // HTTPS-only sites can return a legacy absolute HTTP callback. Preserve
+    // its exact path/query/fragment while upgrading, never restart at home.
+    // Do not relax Android's cleartext policy or interfere with legacy sites
+    // that explicitly opt into their existing scoped HTTP handling below.
+    if (!widget.allowHttpTarget &&
+        requested?.scheme == 'http' &&
+        requested?.host == widget.targetHost &&
+        Uri.parse(widget.initialUrl).scheme == 'https') {
+      final secure = requested!.replace(scheme: 'https');
+      if (_secureTargetUpgrades.add(requested)) {
+        _navigationLog('https_callback_upgrade', requested);
+        unawaited(_loadUrl(secure, reason: 'https_callback'));
+      } else {
+        _fail('网站反复返回非安全地址，请稍后重试');
+      }
+      return NavigationDecision.prevent;
+    }
     if (widget.mailSite) {
       final uri = Uri.tryParse(request.url);
       if (uri?.host == widget.targetHost && uri?.scheme == 'http') {
@@ -598,7 +614,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
 
   String _safeLocation(String? value) {
     final uri = Uri.tryParse(value ?? '');
-    return uri == null ? '' : '${uri.host}${uri.path}';
+    return uri == null ? '' : '${uri.scheme}://${uri.host}${uri.path}';
   }
 
   void _libraryLog(String stage, Uri? uri, [String detail = '']) {
@@ -871,6 +887,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
     if (!mounted || epoch != _navigationGuard.generation) return;
     _deadline?.cancel();
     _loginAttempts = 0;
+    _secureTargetUpgrades.clear();
     if (initial) _locationApplied = false;
     _ssoAttempted = false;
     if (initial) _libraryOpened = false;
@@ -922,7 +939,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
     try {
       if (!_mayAutoNavigate(epoch)) return;
       if (_failed && !widget.librarySite) return;
-      final uri = Uri.tryParse(await _web.currentUrl() ?? '');
+      var uri = Uri.tryParse(await _web.currentUrl() ?? '');
       if (uri == null) return;
       if (!_mayAutoNavigate(epoch)) return;
       if (widget.targetHost == GraduateNavigation.targetHost &&
@@ -1021,8 +1038,22 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
         return;
       }
 
-      if (!widget.authenticationRequired) {
-        if (uri.scheme == 'https' && uri.host == widget.targetHost) {
+      // A link visited after the original site opened is browsing, not a new
+      // jAccount redirect chain. Never inspect/fill an external login form.
+      // The actual identity-provider hosts still follow the existing SSO flow.
+      final identityHost = const {
+        'jaccount.sjtu.edu.cn',
+        'id.sjtu.edu.cn',
+        'login.sjtu.edu.cn',
+      }.contains(uri.host);
+      final browsingOtherHost = _hasReachedContent &&
+          uri.host != widget.targetHost &&
+          uri.host.isNotEmpty &&
+          !identityHost;
+      if (!widget.authenticationRequired || browsingOtherHost) {
+        if (uri.scheme == 'https' ||
+            (uri.scheme == 'http' && browsingOtherHost)) {
+          _navigationLog('browsing_ready', uri);
           _canvasHomeUri ??= uri;
           _deadline?.cancel();
           if (mounted) {
@@ -1039,6 +1070,31 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
         }
         return;
       }
+
+      SchoolPageInspection inspection;
+      try {
+        inspection = await _auth.inspect(widget.targetHost,
+            allowHttpTarget: widget.allowHttpTarget);
+        if (!_mayAutoNavigate(epoch)) return;
+      } catch (error, stack) {
+        if (!_mayAutoNavigate(epoch)) return;
+        if (widget.librarySite && _libraryOpened) {
+          _libraryLog(
+              'redirect_pending', uri, 'inspection=${error.runtimeType}');
+          return;
+        }
+        if (widget.targetHost == GraduateNavigation.targetHost &&
+            GraduateNavigation.isSsoIntermediate(uri)) {
+          _graduateLog('sso_inspection_pending', uri, '${error.runtimeType}');
+          if (mounted) setState(() => _status = '正在等待 jAccount 登录回跳…');
+          return;
+        }
+        debugPrint('Authenticated page inspection failed: $error\n$stack');
+        _fail('无法确认学校登录状态，请重试');
+        return;
+      }
+
+      uri = inspection.uri ?? uri;
 
       final canvasChooser = widget.canvasSite &&
           uri.host == widget.targetHost &&
@@ -1090,29 +1146,6 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
         } finally {
           if (_ssoSelectingEpoch == epoch) _ssoSelectingEpoch = null;
         }
-      }
-
-      SchoolPageInspection inspection;
-      try {
-        inspection = await _auth.inspect(widget.targetHost,
-            allowHttpTarget: widget.allowHttpTarget);
-        if (!_mayAutoNavigate(epoch)) return;
-      } catch (error, stack) {
-        if (!_mayAutoNavigate(epoch)) return;
-        if (widget.librarySite && _libraryOpened) {
-          _libraryLog(
-              'redirect_pending', uri, 'inspection=${error.runtimeType}');
-          return;
-        }
-        if (widget.targetHost == GraduateNavigation.targetHost &&
-            GraduateNavigation.isSsoIntermediate(uri)) {
-          _graduateLog('sso_inspection_pending', uri, '${error.runtimeType}');
-          if (mounted) setState(() => _status = '正在等待 jAccount 登录回跳…');
-          return;
-        }
-        debugPrint('Authenticated page inspection failed: $error\n$stack');
-        _fail('无法确认学校登录状态，请重试');
-        return;
       }
 
       _graduateLog(
@@ -1181,7 +1214,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
             'School authentication left the allowed redirect chain: '
             '${_safeLocation(inspection.uri?.toString())}',
           );
-          _fail('登录跳转异常，请重试');
+          _fail('登录跳转异常，请重试\n${_safeLocation(inspection.uri?.toString())}');
           return;
       }
     } finally {
@@ -1400,11 +1433,10 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
 
   void _onWebPointerDown(PointerDownEvent event) {
     if (!_compactHistorySite || _handlingBack) return;
-    if (_graduatePlatform &&
-        !WebGesturePolicy.startsAtHorizontalEdge(
-          x: event.position.dx,
-          viewportWidth: MediaQuery.sizeOf(context).width,
-        )) {
+    if (!WebGesturePolicy.startsAtHorizontalEdge(
+      x: event.position.dx,
+      viewportWidth: MediaQuery.sizeOf(context).width,
+    )) {
       _swipePointer = null;
       _swipeStart = null;
       return;
@@ -1421,6 +1453,7 @@ class _AuthenticatedWebPageState extends State<AuthenticatedWebPage> {
     if (delta.dx.abs() < 88 || delta.dx.abs() < delta.dy.abs() * 1.5) {
       return;
     }
+    _navigationLog('edge_swipe_back', _activeUri);
     unawaited(_handleCanvasBack(false, null));
   }
 

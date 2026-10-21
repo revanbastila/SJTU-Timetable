@@ -2,6 +2,32 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:jiaotong_course/services/web_history_policy.dart';
 
 void main() {
+  test('ordinary external articles remain visible history stops', () {
+    const policy =
+        WebHistoryPolicy(homeHost: 'shuiyuan.sjtu.edu.cn', librarySite: false);
+    final home = Uri.parse('https://shuiyuan.sjtu.edu.cn/');
+    final topic = Uri.parse('https://shuiyuan.sjtu.edu.cn/t/topic/1');
+    final one = Uri.parse('https://external.example/article/1');
+    final two = Uri.parse('https://external.example/article/2');
+    expect(policy.isVisiblePage(one), isTrue);
+    expect(
+        policy.previousVisibleIndex(
+            urls: [home, topic, one, two],
+            currentIndex: 3,
+            currentPage: two,
+            rootPage: home),
+        2);
+    expect(
+        policy.previousVisibleIndex(
+            urls: [home, topic, one],
+            currentIndex: 2,
+            currentPage: one,
+            rootPage: home),
+        1);
+    expect(
+        policy.isVisiblePage(Uri.parse('https://jaccount.sjtu.edu.cn/login')),
+        isFalse);
+  });
   test('library authentication hops are not visible back stops', () {
     const policy =
         WebHistoryPolicy(homeHost: 'libcms.lib.sjtu.edu.cn', librarySite: true);

@@ -1,4 +1,5 @@
 import '../widgets/settings_dropdown.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -10,6 +11,8 @@ import '../widgets/app_update_ui.dart';
 import '../widgets/common_website_grid.dart';
 import 'authenticated_web_page.dart';
 import 'login_page.dart';
+import 'attendance_status_page.dart';
+import '../models/attendance.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.app, this.advanced = false});
@@ -55,23 +58,25 @@ class SettingsPageState extends State<SettingsPage> {
       );
 
   Future<void> _openWebsite(BuildContext context, CommonWebsite site) async {
-    await Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => AuthenticatedWebPage(
-        title: site.name,
-        initialUrl: site.url,
-        targetHost: Uri.parse(site.url).host,
-        app: app,
-        preferSsoLogin: site.preferSsoLogin,
-        allowHttpTarget: site.allowHttpTarget,
-        canvasSite: site.canvasSite,
-        librarySite: site.librarySite,
-        mailSite: site.mailSite,
-        authenticationRequired: site.authenticationRequired,
-        enableGeolocation: site.enableGeolocation,
-        ssoFallbackUrl: site.canvasSite ? site.url : '',
-        showCloseButton: true,
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AuthenticatedWebPage(
+          title: site.name,
+          initialUrl: site.url,
+          targetHost: Uri.parse(site.url).host,
+          app: app,
+          preferSsoLogin: site.preferSsoLogin,
+          allowHttpTarget: site.allowHttpTarget,
+          canvasSite: site.canvasSite,
+          librarySite: site.librarySite,
+          mailSite: site.mailSite,
+          authenticationRequired: site.authenticationRequired,
+          enableGeolocation: site.enableGeolocation,
+          ssoFallbackUrl: site.canvasSite ? site.url : '',
+          showCloseButton: true,
+        ),
       ),
-    ));
+    );
     if (site.canvasSite) await app.refreshNow();
   }
 
@@ -140,7 +145,7 @@ class SettingsPageState extends State<SettingsPage> {
                 const TextStyle(fontSize: 16))
             .copyWith(fontWeight: FontWeight.w700, height: 1.0);
     return AnimatedBuilder(
-      animation: app,
+      animation: Listenable.merge([app, app.attendance]),
       builder: (context, _) => SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 30),
@@ -151,8 +156,9 @@ class SettingsPageState extends State<SettingsPage> {
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w800,
-                  color:
-                      app.themeChoice.headerFor(Theme.of(context).brightness),
+                  color: app.themeChoice.headerFor(
+                    Theme.of(context).brightness,
+                  ),
                 ),
               )
             else
@@ -163,16 +169,18 @@ class SettingsPageState extends State<SettingsPage> {
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.w800,
-                      color: app.themeChoice
-                          .headerFor(Theme.of(context).brightness),
+                      color: app.themeChoice.headerFor(
+                        Theme.of(context).brightness,
+                      ),
                     ),
                   ),
                   const Spacer(),
                   IconButton(
                     tooltip: '设置',
                     icon: const Icon(Icons.settings_outlined),
-                    color: app.themeChoice
-                        .primaryFor(Theme.of(context).brightness),
+                    color: app.themeChoice.primaryFor(
+                      Theme.of(context).brightness,
+                    ),
                     onPressed: () => _openAdvancedSettings(context),
                   ),
                 ],
@@ -211,7 +219,7 @@ class SettingsPageState extends State<SettingsPage> {
                       value: app.refreshMinutes,
                       options: {
                         for (final value in [15, 30, 60, 120])
-                          value: '$value 分钟'
+                          value: '$value 分钟',
                       },
                       onChanged: app.setRefreshMinutes,
                     ),
@@ -249,8 +257,11 @@ class SettingsPageState extends State<SettingsPage> {
                       child: Divider(height: 1),
                     ),
                     Padding(
-                      padding:
-                          const EdgeInsets.only(left: 58, right: 12, bottom: 4),
+                      padding: const EdgeInsets.only(
+                        left: 58,
+                        right: 12,
+                        bottom: 4,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -316,43 +327,53 @@ class SettingsPageState extends State<SettingsPage> {
               _SettingCard(
                 title: '常用网站',
                 contentPadding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
-                onMore: () =>
-                    Navigator.of(context).push(MaterialPageRoute<void>(
-                  builder: (_) => Scaffold(
-                    appBar: AppBar(title: const Text('常用网站')),
-                    body: SafeArea(
+                onMore: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => Scaffold(
+                      appBar: AppBar(title: const Text('常用网站')),
+                      body: SafeArea(
                         child: ListView(
-                      key: const Key('website-full-list'),
-                      padding: const EdgeInsets.all(20),
-                      children: [
-                        _SettingCard(children: [
-                          for (var index = 0;
-                              index < commonWebsites.length;
-                              index++) ...[
-                            if (index > 0) const Divider(height: 1),
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: _SettingIcon(
-                                  icon: commonWebsites[index].icon),
-                              title: Text(commonWebsites[index].name,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w700)),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () =>
-                                  _openWebsite(context, commonWebsites[index]),
+                          key: const Key('website-full-list'),
+                          padding: const EdgeInsets.all(20),
+                          children: [
+                            _SettingCard(
+                              children: [
+                                for (var index = 0;
+                                    index < commonWebsites.length;
+                                    index++) ...[
+                                  if (index > 0) const Divider(height: 1),
+                                  ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: _SettingIcon(
+                                      icon: commonWebsites[index].icon,
+                                    ),
+                                    title: Text(
+                                      commonWebsites[index].name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    trailing: const Icon(Icons.chevron_right),
+                                    onTap: () => _openWebsite(
+                                      context,
+                                      commonWebsites[index],
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ],
-                        ])
-                      ],
-                    )),
+                        ),
+                      ),
+                    ),
                   ),
-                )),
+                ),
                 children: [
                   CommonWebsiteGrid(
                     entries: commonWebsites,
                     topPadding: 0,
                     onOpen: (site) => _openWebsite(context, site),
-                  )
+                  ),
                 ],
               ),
               const SizedBox(height: 22),
@@ -373,7 +394,7 @@ class SettingsPageState extends State<SettingsPage> {
                       value: app.interfaceMode,
                       options: {
                         for (final mode in InterfaceMode.values)
-                          mode: mode.label
+                          mode: mode.label,
                       },
                       onChanged: app.setInterfaceMode,
                     ),
@@ -434,9 +455,8 @@ class SettingsPageState extends State<SettingsPage> {
                     onSelectionChanged: (value) async {
                       final warning = await app.setReminderMode(value.first);
                       if (context.mounted && warning != null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(warning)),
-                        );
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(SnackBar(content: Text(warning)));
                       }
                     },
                   ),
@@ -460,7 +480,7 @@ class SettingsPageState extends State<SettingsPage> {
                       key: const Key('settings-reminder-menu'),
                       value: app.reminderMinutes,
                       options: {
-                        for (final value in [5, 10, 15, 30]) value: '$value 分钟'
+                        for (final value in [5, 10, 15, 30]) value: '$value 分钟',
                       },
                       onChanged: app.setReminderMinutes,
                     ),
@@ -488,7 +508,69 @@ class SettingsPageState extends State<SettingsPage> {
             ],
             if (advanced) ...[
               _SettingCard(
-                  title: '关于', children: const [UpdateSettingsEntry()]),
+                key: const Key('auto-attendance-settings'),
+                title: '自动签到',
+                children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const _SettingIcon(icon: Icons.qr_code_scanner),
+                    title: const Text(
+                      '自动签到',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: const Text(
+                      '课前后检测 Canvas 签到，发现后提示；选择执行后打开直播，识别二维码并核实提交。后台检测需显示常驻通知。',
+                    ),
+                    trailing: Switch(
+                      value: app.attendance.enabled,
+                      onChanged: (value) async {
+                        await app.attendance.setEnabled(value);
+                        if (value) {
+                          try {
+                            final allowed = await app.attendanceBackend
+                                .notificationPermission();
+                            if (!allowed) {
+                              app.attendance.report(
+                                app.attendance.phase,
+                                '通知未开启，后台提示受限',
+                              );
+                            }
+                          } catch (_) {
+                            app.attendance.report(
+                              AttendancePhase.limited,
+                              '当前设备暂不支持后台提示',
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                  if (app.attendance.enabled) ...[
+                    const Divider(height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const _SettingIcon(icon: Icons.info_outline),
+                      title: Text(app.attendance.phase.label),
+                      subtitle: Text(
+                        app.attendance.detail.isEmpty
+                            ? '课前后各 10 分钟内检查；点此连接课程及查看运行状态'
+                            : app.attendance.detail,
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => AttendanceStatusPage(app: app),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 22),
+              _SettingCard(
+                title: '关于',
+                children: const [UpdateSettingsEntry()],
+              ),
               const SizedBox(height: 26),
               Center(
                 child: TextButton(
@@ -577,38 +659,42 @@ class _SettingCard extends StatelessWidget {
               if (title != null) ...[
                 Padding(
                   padding: EdgeInsets.only(
-                      left: titleInset, bottom: onMore != null ? 16 : 5),
+                    left: titleInset,
+                    bottom: onMore != null ? 16 : 5,
+                  ),
                   child: Row(
-                      crossAxisAlignment: onMore != null
-                          ? CrossAxisAlignment.baseline
-                          : CrossAxisAlignment.center,
-                      textBaseline: TextBaseline.alphabetic,
-                      children: [
-                        Expanded(
-                            child: GestureDetector(
-                                key: ValueKey('setting-heading-$title'),
-                                child: Text(
-                                  title!,
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    height: 1.15,
-                                    fontWeight: FontWeight.w800,
-                                    color:
-                                        Theme.of(context).colorScheme.primary,
-                                  ),
-                                ))),
-                        if (onMore != null)
-                          TextButton(
-                            key: const Key('website-more'),
-                            style: TextButton.styleFrom(
-                              padding: EdgeInsets.zero,
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    crossAxisAlignment: onMore != null
+                        ? CrossAxisAlignment.baseline
+                        : CrossAxisAlignment.center,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          key: ValueKey('setting-heading-$title'),
+                          child: Text(
+                            title!,
+                            style: TextStyle(
+                              fontSize: 16,
+                              height: 1.15,
+                              fontWeight: FontWeight.w800,
+                              color: Theme.of(context).colorScheme.primary,
                             ),
-                            onPressed: onMore,
-                            child: const Text('更多 >'),
                           ),
-                      ]),
+                        ),
+                      ),
+                      if (onMore != null)
+                        TextButton(
+                          key: const Key('website-more'),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: onMore,
+                          child: const Text('更多 >'),
+                        ),
+                    ],
+                  ),
                 ),
               ],
               ...children,

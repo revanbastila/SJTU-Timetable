@@ -45,11 +45,6 @@ class WebHistoryPolicy {
       return false;
     }
     if (librarySite) {
-      if (host != homeHost &&
-          !host.endsWith('.lib.sjtu.edu.cn') &&
-          !LibraryNavigation.isPrimoHost(host)) {
-        return false;
-      }
       if (LibraryNavigation.isAuthenticationIntermediate(uri) ||
           (LibraryNavigation.isPrimoHost(host) &&
               uri.path.toLowerCase().contains('/account'))) {
@@ -59,8 +54,6 @@ class WebHistoryPolicy {
       // LTI players can open several temporary documents (including popups)
       // before returning to Canvas. None is a useful stop on the way back to
       // the course that launched the player.
-      return false;
-    } else if (!canvasSite && host != homeHost) {
       return false;
     }
     final path = uri.path.toLowerCase();

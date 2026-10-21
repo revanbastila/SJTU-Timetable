@@ -23,19 +23,7 @@ class SchoolWebAuthenticator {
 
   Future<SchoolPageInspection> inspect(String targetHost,
       {bool allowHttpTarget = false}) async {
-    final uri = Uri.tryParse(await controller.currentUrl() ?? '');
-    if (uri == null ||
-        (uri.scheme != 'https' &&
-            !(allowHttpTarget &&
-                uri.scheme == 'http' &&
-                uri.host == targetHost))) {
-      return SchoolPageInspection(SchoolPageKind.outside, uri);
-    }
-    final schoolHost = isAllowedHost(uri.host, targetHost);
-    if (!schoolHost) {
-      return SchoolPageInspection(SchoolPageKind.outside, uri);
-    }
-
+    final nativeUri = Uri.tryParse(await controller.currentUrl() ?? '');
     final raw = await controller.runJavaScriptReturningResult(r'''
       (() => {
         const visible = element => !!element &&
@@ -56,12 +44,33 @@ class SchoolWebAuthenticator {
         const challengeText = /请输入验证码|图形验证码|动态验证码|二次验证|多因素认证/i
           .test(body);
         return JSON.stringify({
+          href: location.href,
           hasPassword: !!password,
           hasChallenge: !!challengeNode || challengeText
         });
       })()
     ''');
     final state = _jsonMap(raw);
+    // Native getUrl() and renderer callbacks are asynchronous during SSO.
+    // Read URL and form state from the same document, rather than combining
+    // an old/native about:blank URL with a newly committed target document.
+    final documentUrl = state['href'];
+    final uri = documentUrl is String && documentUrl.isNotEmpty
+        ? Uri.tryParse(documentUrl)
+        : nativeUri;
+    if (uri == null ||
+        uri.toString().isEmpty ||
+        uri.toString() == 'about:blank' ||
+        uri.toString() == 'about:srcdoc') {
+      return SchoolPageInspection(SchoolPageKind.transition, uri);
+    }
+    if ((uri.scheme != 'https' &&
+            !(allowHttpTarget &&
+                uri.scheme == 'http' &&
+                uri.host == targetHost)) ||
+        !isAllowedHost(uri.host, targetHost)) {
+      return SchoolPageInspection(SchoolPageKind.outside, uri);
+    }
     final hasPassword = state['hasPassword'] == true;
     final hasChallenge = state['hasChallenge'] == true;
     if (hasChallenge) {

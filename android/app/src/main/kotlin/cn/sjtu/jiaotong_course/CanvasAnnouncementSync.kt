@@ -112,13 +112,29 @@ object CanvasAnnouncementSync {
         .getString("result", "{\"courses\":[]}") ?: "{\"courses\":[]}"
 
     fun poll(context: Context, cookie: String, cancelled: () -> Boolean = { false },
+             source: String = "foreground",
              completion: (String) -> Unit) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val revision = prefs.getString("revision", "")
         val catalog = prefs.getString("catalog", "[]") ?: "[]"
         val now = System.currentTimeMillis()
+        val remaining = prefs.getLong("nextAttempt", 0) - now
+        // A periodic Flutter timer may arrive a few milliseconds early. Dropping
+        // that request would postpone a two-minute check by a whole extra tick.
+        // Wait only at the rate-limit boundary; keep failure backoff and all
+        // background scheduling constraints intact, and reject stale accounts.
+        if (source == "foreground" && cookie.isNotBlank() && catalog != "[]" &&
+            remaining in 1..1000 && !cancelled()) {
+            Log.i("CanvasAnnouncements", "poll_wait source=$source delay_ms=${remaining + 1}")
+            main.postDelayed({
+                if (cancelled() || prefs.getString("revision", "") != revision) completion(cached(context))
+                else poll(context, cookie, cancelled, source, completion)
+            }, remaining + 1)
+            return
+        }
         if (cookie.isBlank() || now < prefs.getLong("nextAttempt", 0) ||
             catalog == "[]" || !busy.compareAndSet(false, true)) {
+            Log.i("CanvasAnnouncements", "poll_skipped source=$source session=${cookie.isNotBlank()} catalog=${catalog != "[]"} throttled=${now < prefs.getLong("nextAttempt", 0)}")
             completion(cached(context))
             return
         }
@@ -126,6 +142,7 @@ object CanvasAnnouncementSync {
         executor.execute {
             try {
                 val courses = JSONArray(catalog)
+                Log.i("CanvasAnnouncements", "poll_started source=$source courses=${courses.length()}")
                 val updates = mutableMapOf<String, JSONObject>()
                 val last = prefs.getLong("lastSuccess", 0)
                 // Small overlap handles delayed publication/clock skew; ID dedup
@@ -212,13 +229,14 @@ object CanvasAnnouncementSync {
                     }
                 }
                 main.post { channel?.invokeMethod("updated", null) }
-                Log.i("CanvasAnnouncements", "synced courses=${updates.size}")
-            } catch (_: Exception) {
+                Log.i("CanvasAnnouncements", "synced source=$source courses=${updates.size} new=${newItems.size}")
+            } catch (error: Exception) {
                 // Failed requests never overwrite the last good snapshot or invoke SSO.
                 if (prefs.getString("revision", "") == revision) {
                     prefs.edit().putLong("nextAttempt", now + 5 * 60_000L).apply()
                 }
-                Log.i("CanvasAnnouncements", "sync deferred; cache retained")
+                val reason = if (error is HttpFailure) "http_${error.code}" else error.javaClass.simpleName
+                Log.i("CanvasAnnouncements", "sync_deferred source=$source reason=$reason cache_retained=true")
             } finally {
                 busy.set(false)
                 completion(cached(context))
@@ -300,7 +318,7 @@ class CanvasAnnouncementJobService : JobService() {
         val token = cancelled
         val cookie = try { CookieManager.getInstance().getCookie("https://oc.sjtu.edu.cn") ?: "" }
             catch (_: Exception) { "" }
-        CanvasAnnouncementSync.poll(applicationContext, cookie, { token.get() }) {
+        CanvasAnnouncementSync.poll(applicationContext, cookie, { token.get() }, source = "background") {
             Handler(Looper.getMainLooper()).post { if (!token.get()) jobFinished(params, false) }
         }
         return true
