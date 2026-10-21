@@ -5,6 +5,10 @@ plugins {
 }
 
 android {
+    // Standard install-time extraction keeps release downloads small.
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+    }
     namespace = "cn.sjtu.jiaotong_course"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = "28.2.13676358"

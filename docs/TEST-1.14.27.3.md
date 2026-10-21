@@ -12,15 +12,15 @@
 ## 安装
 - versionName `1.14.27.3`，versionCode `90`。
 - 包名 `cn.sjtu.jiaotong_course.slimtest.a`，名称“交大课表·测试A”，沿用此前测试签名，可覆盖测试A；与正式版独立安装。
-- 提供通用 APK，包含 arm64-v8a、armeabi-v7a、x86_64。下载 `jiaotong_course-1.14.27.3-test-universal.apk`。
+- 提供 ARM64、ARM32 与 x86_64 分架构 APK；常见手机优先下载 `jiaotong_course-1.14.27.3-test-arm64-v8a.apk`。使用 Android 标准原生库压缩与安装时解压方式，减小下载体积。
 - 测试证书 SHA-256：`0f6875165f273a8d6f3554199cef461da657e000dbaf26544049e876efcdc4f2`。
 - 不上传签名私钥、本机配置、手机日志/截图、账号、Cookie 或 Token。
 
 ## 已验证
 - 295项 Flutter 测试全部通过，静态分析无问题，涵盖检测窗口、校历、去重、网络恢复、授权执行、取消/失败释放、并发提交控制及深浅色显示。
-- Android 16 真机完成安装，已安装 APK SHA-256 与附件一致；7门课程真实手动读取正常，已完成与历史未签到正确区分。
+- Android 16 真机完成通用包安装；7门课程真实手动读取正常，已完成与历史未签到正确区分。发布的分架构压缩包通过版本、签名、ABI、ZIP完整性检查，DEX与原生库逐文件比对，内容与已测试通用包一致；压缩包本身尚未另行安装验收。
 - 通知及准时启动权限配置验证，课程边界精确闹钟实际登记，课外切后台35秒后检测服务未运行。
-- APK 版本、三种 ABI、测试签名及 ZIP CRC 校验通过。
+- 三种分架构 APK 的版本、ABI、测试签名及 ZIP CRC 校验通过。
 
 ## 重要限制：未完成端到端验收
 - **真实课程窗口内后台30秒运行、新发签到通知/弹窗、当前直播二维码、任务关联、最终提交及成功回读仍未实测通过。自动化测试和编译成功不代表自动签到已可用。**
@@ -31,3 +31,7 @@
 - Canvas公告仍不是实时事件推送，邮箱自动收信尚未接通。本次没有宣称解决这些既有限制。
 
 [Android服务时限](https://developer.android.com/develop/background-work/services/fgs/timeout) · [后台启动限制](https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start)
+
+## 发布打包说明
+
+通用包及未压缩分架构包上传时，连接在数据传输结束后反复被重置，未创建成功的APK附件。改用Android Gradle标准 `packaging.jniLibs.useLegacyPackaging=true` 后，分架构包缩小至约10MB并可上传；只改变安装容器与原生库解压方式，不改变Dart/DEX或原生库内容。不把压缩包二进制一致性核验当作新的端到端运行验收。
