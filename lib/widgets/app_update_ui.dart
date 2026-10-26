@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/app_update.dart';
 import '../services/update_manager.dart';
+import '../services/update_config.dart';
 
 String readableReleaseNotes(String notes) => notes
     .replaceAll(RegExp(r'^\s*[-*]\s+', multiLine: true), '• ')
@@ -180,13 +181,14 @@ class _UpdateObserverState extends State<UpdateObserver> {
 }
 
 class UpdateSettingsEntry extends StatefulWidget {
-  const UpdateSettingsEntry({super.key});
+  const UpdateSettingsEntry({super.key, this.manager});
+  final UpdateManager? manager;
   @override
   State<UpdateSettingsEntry> createState() => _UpdateSettingsEntryState();
 }
 
 class _UpdateSettingsEntryState extends State<UpdateSettingsEntry> {
-  final manager = UpdateManager.instance;
+  late final manager = widget.manager ?? UpdateManager.instance;
   @override
   void initState() {
     super.initState();
@@ -240,6 +242,12 @@ class _UpdateSettingsEntryState extends State<UpdateSettingsEntry> {
                   leading: const Icon(Icons.info_outline),
                   title: const Text('当前版本',
                       style: TextStyle(fontWeight: FontWeight.w700)),
+                  subtitle: manager.current == null
+                      ? null
+                      : Text(manager.current!.packageName ==
+                              UpdateConfig.testPackage
+                          ? '更新渠道：测试版'
+                          : '更新渠道：正式版'),
                   trailing: Text(manager.current?.name ?? '读取中')),
               ListTile(
                   contentPadding: EdgeInsets.zero,

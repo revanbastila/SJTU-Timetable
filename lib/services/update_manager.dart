@@ -23,7 +23,7 @@ class UpdateManager extends ChangeNotifier with WidgetsBindingObserver {
       DateTime Function()? clock})
       : clock = clock ?? DateTime.now;
   static final instance = UpdateManager(
-      repository: GitHubReleaseApi(),
+      repository: GitHubReleaseApi(channel: UpdateChannel.installedApp),
       platform: AndroidUpdateBridge(),
       configured: UpdateConfig.configured);
   final ReleaseRepository repository;
@@ -94,7 +94,7 @@ class UpdateManager extends ChangeNotifier with WidgetsBindingObserver {
       final info = await repository.latest();
       final latest = ReleaseVersion.parse(info.version);
       if (latest == null) throw const UpdateException('无法识别最新版本号');
-      final isNew = latest.compareTo(installed) > 0;
+      final isNew = info.isNewerThan(current!);
       available = isNew ? info : null;
       if (automatic &&
           isNew &&

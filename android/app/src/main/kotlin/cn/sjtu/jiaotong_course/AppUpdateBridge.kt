@@ -48,7 +48,7 @@ class AppUpdateBridge(activity: Activity) {
             "supportedAbis" -> result.success(Build.SUPPORTED_ABIS.toList())
             "version" -> safely(result) {
                 val info = installedInfo()
-                result.success(mapOf("name" to (info.versionName ?: ""), "code" to versionCode(info)))
+                result.success(mapOf("name" to (info.versionName ?: ""), "code" to versionCode(info), "packageName" to app.packageName))
             }
             "state" -> async(result) { result.success(state()) }
             "download" -> async(result) { result.success(download(call)) }
@@ -115,9 +115,17 @@ class AppUpdateBridge(activity: Activity) {
         val owner = call.argument<String>("owner") ?: ""
         val repo = call.argument<String>("repo") ?: ""
         require(trustedAsset(uri, owner, repo)) { "APK 下载地址不属于配置的 GitHub Release" }
+        val expectedPackage = call.argument<String>("packageName") ?: ""
+        require(expectedPackage.isEmpty() || expectedPackage == app.packageName) { "更新包渠道与当前应用不一致" }
+        val expectedCode = call.argument<Number>("versionCode")?.toLong() ?: 0L
+        require(expectedCode == 0L || expectedCode > versionCode(installedInfo())) { "更新版本不高于当前安装版本" }
         val current = state()
         if (current["status"] == "downloading") return current
-        if (current["status"] == "ready" && prefs.getString("url", "") == url) return current
+        if (current["status"] == "ready" && prefs.getString("url", "") == url &&
+            prefs.getLong("size", -1L) == (call.argument<Number>("size")?.toLong() ?: 0L) &&
+            prefs.getString("digest", "") == (call.argument<String>("digest") ?: "") &&
+            prefs.getLong("expectedCode", 0L) == expectedCode &&
+            prefs.getString("expectedVersion", "") == (call.argument<String>("versionName") ?: "")) return current
         val size = call.argument<Number>("size")?.toLong() ?: 0L
         require(size > 0) { "APK 大小无效，请检查发布附件" }
         val originalName = call.argument<String>("name") ?: "update.apk"
@@ -141,6 +149,8 @@ class AppUpdateBridge(activity: Activity) {
         prefs.edit().clear().putLong("downloadId", id).putString("file", destination.absolutePath)
             .putString("url", url).putString("name", name).putLong("size", size)
             .putString("digest", call.argument<String>("digest") ?: "")
+            .putLong("expectedCode", expectedCode)
+            .putString("expectedVersion", call.argument<String>("versionName") ?: "")
             .putLong("baseCode", versionCode(installedInfo()))
             .putBoolean("installDispatched", false).apply()
         return state()
@@ -226,6 +236,12 @@ class AppUpdateBridge(activity: Activity) {
         val installed = installedInfo()
         require(downloaded.packageName == app.packageName) { "APK 不属于交大课表，请检查 Release 附件" }
         require(versionCode(downloaded) > versionCode(installed)) { "APK versionCode 必须高于当前版本，请检查 Release 附件" }
+        val expectedCode = prefs.getLong("expectedCode", 0L)
+        if (expectedCode > 0) {
+            require(versionCode(downloaded) == expectedCode && downloaded.versionName == prefs.getString("expectedVersion", "")) {
+                "APK 版本与测试更新清单不一致，请重新检查更新"
+            }
+        }
         val currentSignatures = signatures(installed)
         require(currentSignatures.isNotEmpty() && currentSignatures == signatures(downloaded)) {
             "APK 签名与当前应用不一致，无法覆盖升级，请联系发布者"

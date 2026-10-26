@@ -16,11 +16,14 @@ class AndroidUpdateBridge implements UpdatePlatform {
   static const channel = MethodChannel('cn.sjtu.jiaotong_course/updates');
   static Future<List<String>> supportedAbis() async =>
       await channel.invokeListMethod<String>('supportedAbis') ?? const [];
+  static Future<String> installedPackage() async =>
+      (await AndroidUpdateBridge().version()).packageName;
   @override
   Future<AppVersion> version() async {
     final value = await channel.invokeMapMethod<String, dynamic>('version');
     if (value == null) throw const UpdateException('无法读取当前应用版本');
-    return AppVersion(value['name'] as String, (value['code'] as num).toInt());
+    return AppVersion(value['name'] as String, (value['code'] as num).toInt(),
+        packageName: value['packageName'] as String? ?? '');
   }
 
   @override
@@ -33,13 +36,16 @@ class AndroidUpdateBridge implements UpdatePlatform {
               'name': info.apkName,
               'size': info.apkSize,
               'digest': info.apkDigest,
+              'versionCode': info.versionCode,
+              'versionName': info.versionCode == null ? null : info.version,
+              'packageName': info.packageName,
             }) ??
             const {},
       );
   @override
   Future<Map<String, dynamic>> state() async => Map<String, dynamic>.from(
-    await channel.invokeMapMethod<String, dynamic>('state') ?? const {},
-  );
+        await channel.invokeMapMethod<String, dynamic>('state') ?? const {},
+      );
   @override
   Future<String> install() async =>
       await channel.invokeMethod<String>('install') ?? 'failed';

@@ -1,9 +1,10 @@
 import '../services/update_config.dart';
 
 class AppVersion {
-  const AppVersion(this.name, this.code);
+  const AppVersion(this.name, this.code, {this.packageName = ''});
   final String name;
   final int code;
+  final String packageName;
 }
 
 class ReleaseVersion implements Comparable<ReleaseVersion> {
@@ -18,9 +19,8 @@ class ReleaseVersion implements Comparable<ReleaseVersion> {
 
   @override
   int compareTo(ReleaseVersion other) {
-    final length = parts.length > other.parts.length
-        ? parts.length
-        : other.parts.length;
+    final length =
+        parts.length > other.parts.length ? parts.length : other.parts.length;
     for (var i = 0; i < length; i++) {
       final left = i < parts.length ? parts[i] : BigInt.zero;
       final right = i < other.parts.length ? other.parts[i] : BigInt.zero;
@@ -49,13 +49,114 @@ class UpdateInfo {
     this.apkUrl = '',
     this.apkSize = 0,
     this.apkDigest = '',
+    this.versionCode,
+    this.packageName = '',
+    this.channel = 'stable',
   });
   final String version, releaseName, releaseNotes, releasePageUrl;
   final String apkName, apkUrl, apkDigest;
   final DateTime? publishedAt;
   final int apkSize;
+  final int? versionCode;
+  final String packageName, channel;
   bool get hasApk => apkUrl.isNotEmpty;
   String get displayVersion => 'v${version.replaceFirst(RegExp(r'^[vV]'), '')}';
+
+  bool isNewerThan(AppVersion installed) {
+    final next = ReleaseVersion.parse(version);
+    final current = ReleaseVersion.parse(installed.name);
+    if (next == null || current == null) return false;
+    if (versionCode != null) {
+      return versionCode! > installed.code && next.compareTo(current) >= 0;
+    }
+    return next.compareTo(current) > 0;
+  }
+
+  /// The mutable test channel is a file in its designated Git branch. APKs
+  /// remain immutable Release assets and retain native package/signature checks.
+  factory UpdateInfo.fromTestManifest(
+      Map<String, dynamic> json, String owner, String repo,
+      {List<String> supportedAbis = const []}) {
+    final version = json['versionName'];
+    final code = json['versionCode'];
+    if (json['schemaVersion'] != 1 ||
+        json['channel'] != 'test-a' ||
+        json['packageName'] != UpdateConfig.testPackage ||
+        version is! String ||
+        !RegExp(r'^\d+(?:\.\d+)+$').hasMatch(version) ||
+        code is! int ||
+        code <= 0 ||
+        code > 2100000000) {
+      throw const UpdateException('测试版更新清单的版本、渠道或包名无效');
+    }
+    final tag = 'v$version-test';
+    final page = Uri.tryParse('${json['releasePageUrl'] ?? ''}');
+    if (json['releaseTag'] != tag ||
+        page == null ||
+        !UpdateConfig.trustedReleasePage(page, owner, repo) ||
+        page.pathSegments.length != 5 ||
+        page.pathSegments[3] != 'tag' ||
+        page.pathSegments[4] != tag ||
+        page.hasQuery ||
+        page.hasFragment) {
+      throw const UpdateException('测试版发布页面与更新版本不匹配');
+    }
+    final rows = json['assets'];
+    if (rows is! List || rows.isEmpty) {
+      throw const UpdateException('测试版更新清单没有安装包');
+    }
+    final byAbi = <String, Map<String, dynamic>>{};
+    for (final value in rows) {
+      if (value is! Map<String, dynamic>) {
+        throw const UpdateException('测试版安装包信息无效');
+      }
+      final abi = value['abi'];
+      final name = value['name'];
+      final size = value['size'];
+      final digest = value['sha256'];
+      final url = Uri.tryParse('${value['url'] ?? ''}');
+      if (abi is! String ||
+          !['arm64-v8a', 'armeabi-v7a', 'x86_64', 'universal'].contains(abi) ||
+          byAbi.containsKey(abi) ||
+          name != 'jiaotong_course-$version-test-$abi.apk' ||
+          size is! int ||
+          size <= 0 ||
+          digest is! String ||
+          !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(digest) ||
+          url == null ||
+          !UpdateConfig.trustedAsset(url, owner, repo) ||
+          url.hasQuery ||
+          url.hasFragment ||
+          url.pathSegments[4] != tag ||
+          url.pathSegments[5] != name) {
+        throw const UpdateException('测试版安装包的架构、地址或校验信息无效');
+      }
+      byAbi[abi] = value;
+    }
+    Map<String, dynamic>? selected;
+    for (final abi in supportedAbis) {
+      selected = byAbi[abi];
+      if (selected != null) break;
+    }
+    selected ??= byAbi['universal'];
+    if (selected == null) throw const UpdateException('当前设备没有可用的测试版安装包');
+    return UpdateInfo(
+        version: version,
+        versionCode: code,
+        packageName: UpdateConfig.testPackage,
+        channel: 'test-a',
+        releaseName: json['releaseName'] is String
+            ? json['releaseName']
+            : '交大课表 $version · 测试 A',
+        releaseNotes:
+            json['releaseNotes'] is String ? json['releaseNotes'] : '',
+        publishedAt: DateTime.tryParse('${json['publishedAt'] ?? ''}'),
+        releasePageUrl: page.toString(),
+        apkName: selected['name'],
+        apkUrl: selected['url'],
+        apkSize: selected['size'],
+        apkDigest: 'sha256:${(selected['sha256'] as String).toLowerCase()}');
+  }
 
   factory UpdateInfo.fromRelease(
     Map<String, dynamic> json,
@@ -133,9 +234,9 @@ class UpdateInfo {
   static Set<String> _assetAbis(String name) {
     final text = name.toLowerCase();
     bool has(String pattern) => RegExp(
-      '(^|[^a-z0-9])(?:$pattern)'
-      r'(?=$|[^a-z0-9])',
-    ).hasMatch(text);
+          '(^|[^a-z0-9])(?:$pattern)'
+          r'(?=$|[^a-z0-9])',
+        ).hasMatch(text);
     final abis = <String>{};
     if (has('arm64-v8a|arm64|aarch64')) abis.add('arm64-v8a');
     if (has('armeabi-v7a|armeabi|armv7|arm-v7')) abis.add('armeabi-v7a');

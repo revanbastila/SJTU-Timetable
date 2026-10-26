@@ -15,9 +15,13 @@ class GitHubReleaseApi implements ReleaseRepository {
     this.owner = UpdateConfig.githubOwner,
     this.repo = UpdateConfig.githubRepo,
     this.supportedAbis = AndroidUpdateBridge.supportedAbis,
+    this.channel = UpdateChannel.stable,
+    this.installedPackage = AndroidUpdateBridge.installedPackage,
     HttpClient Function()? clientFactory,
   }) : _clientFactory = clientFactory ?? HttpClient.new;
   final String owner, repo;
+  final UpdateChannel channel;
+  final Future<String> Function() installedPackage;
   final Future<List<String>> Function() supportedAbis;
   final HttpClient Function() _clientFactory;
 
@@ -29,23 +33,35 @@ class GitHubReleaseApi implements ReleaseRepository {
     final client = _clientFactory()
       ..connectionTimeout = const Duration(seconds: 10);
     try {
-      final uri = Uri.https(
-        'api.github.com',
-        '/repos/$owner/$repo/releases/latest',
-      );
-      final request = await client
-          .getUrl(uri)
-          .timeout(const Duration(seconds: 12));
+      final selectedChannel = channel == UpdateChannel.installedApp
+          ? UpdateConfig.channelForPackage(await installedPackage())
+          : channel;
+      final testChannel = selectedChannel == UpdateChannel.testA;
+      final uri = testChannel
+          ? Uri.https(
+              'api.github.com',
+              '/repos/$owner/$repo/contents/${UpdateConfig.testManifestPath}',
+              {'ref': UpdateConfig.testBranch})
+          : Uri.https('api.github.com', '/repos/$owner/$repo/releases/latest');
+      final request =
+          await client.getUrl(uri).timeout(const Duration(seconds: 12));
       request.followRedirects = false;
-      request.headers.set('Accept', 'application/vnd.github+json');
+      request.headers.set(
+          'Accept',
+          testChannel
+              ? 'application/vnd.github.raw+json'
+              : 'application/vnd.github+json');
+      request.headers.set('Cache-Control', 'no-cache');
       request.headers.set('User-Agent', 'JiaotongCourse-Android');
       request.headers.set('X-GitHub-Api-Version', '2022-11-28');
       final response = await request.close().timeout(
-        const Duration(seconds: 15),
-      );
+            const Duration(seconds: 15),
+          );
       if (response.statusCode != 200) {
         if (response.statusCode == 404) {
-          throw const UpdateException('未找到公开仓库或正式 Release，请检查更新源配置');
+          throw UpdateException(testChannel
+              ? '未找到测试分支中的更新清单，请稍后重试'
+              : '未找到公开仓库或正式 Release，请检查更新源配置');
         }
         throw const UpdateException('无法连接 GitHub，请稍后重试');
       }
@@ -57,11 +73,16 @@ class GitHubReleaseApi implements ReleaseRepository {
           }
           bytes.addAll(chunk);
         }
-      })().timeout(const Duration(seconds: 15));
+      })()
+          .timeout(const Duration(seconds: 15));
       final body = utf8.decode(bytes);
       final json = jsonDecode(body);
       if (json is! Map<String, dynamic>) {
         throw const UpdateException('无法识别 GitHub 更新信息');
+      }
+      if (testChannel) {
+        return UpdateInfo.fromTestManifest(json, owner, repo,
+            supportedAbis: await supportedAbis());
       }
       return UpdateInfo.fromRelease(
         json,

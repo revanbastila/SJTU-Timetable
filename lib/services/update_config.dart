@@ -1,7 +1,20 @@
 /// Public GitHub repository used by both manual and automatic update checks.
 /// Edit these defaults, or provide --dart-define=GITHUB_OWNER=... and
 /// --dart-define=GITHUB_REPO=... when building. No token is needed or stored.
+enum UpdateChannel { stable, testA, installedApp }
+
 class UpdateConfig {
+  static const stablePackage = 'cn.sjtu.jiaotong_course';
+  static const testPackage = 'cn.sjtu.jiaotong_course.slimtest.a';
+  static const testBranch = 'test/1.14.26';
+  static const testManifestPath = 'updates/test-a.json';
+
+  static UpdateChannel channelForPackage(String packageName) {
+    if (packageName == testPackage) return UpdateChannel.testA;
+    if (packageName == stablePackage) return UpdateChannel.stable;
+    throw ArgumentError('当前安装包未配置更新渠道');
+  }
+
   static const githubOwner = String.fromEnvironment(
     'GITHUB_OWNER',
     defaultValue: 'revanbastila',
