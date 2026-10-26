@@ -278,6 +278,7 @@ class AttendanceSnapshot {
     required List<AttendanceRecord> records,
     this.failure = '',
     this.warning = '',
+    this.nextCheckDelay,
   }) : records = List.unmodifiable(
           [...records]..sort((a, b) {
               final order = b.createdAt.compareTo(a.createdAt);
@@ -286,6 +287,7 @@ class AttendanceSnapshot {
         );
   final String canvasId, failure, warning;
   final DateTime checkedAt;
+  final Duration? nextCheckDelay;
   final List<AttendanceRecord> records;
   AttendanceRecord? get latest => records.isEmpty ? null : records.first;
   bool get successful => failure.isEmpty;
@@ -323,6 +325,8 @@ class AttendanceSnapshot {
         'session_login' => '签到系统会话已失效，请重新连接本课程点名签到',
         'permission' => '当前账号无权读取该课程签到记录',
         'network' => '网络请求失败，将按退避间隔重试',
+        'timeout' => '网络请求超时，将按退避间隔重试',
+        'server' => '签到服务暂时异常，请稍后重试',
         'records_limit' => '记录分页超过读取上限，无法确认最新记录',
         'format' => '签到记录格式无法解析，请重新连接后重试',
         _ => '签到服务未成功返回记录，请稍后重新检查',

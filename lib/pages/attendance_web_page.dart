@@ -36,6 +36,11 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
   SchoolWebAuthenticator? _auth;
   Timer? _sampling, _limit;
   String _message = '正在读取课程入口…';
+  AttendanceRecord? _executionRecord;
+  int? _operation;
+  int _openGeneration = 0;
+  bool _retrying = false;
+  Future<void>? _stopping;
   bool _captureBusy = false, _inspecting = false, _stopped = false;
   int _generation = 0,
       _loginAttempts = 0,
@@ -55,13 +60,16 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.app.attendance.addListener(_stateChanged);
+    _executionRecord = widget.app.attendance.pendingRecord;
+    _operation = widget.app.attendance.operation;
     unawaited(_open());
   }
 
   void _stateChanged() {
     if (!mounted) return;
     final state = widget.app.attendance;
-    if (!state.enabled || (widget.execute && !state.executing)) {
+    if (!state.enabled ||
+        (widget.execute && !state.ownsOperation(_operation))) {
       unawaited(_stop());
       setState(
         () =>
@@ -74,18 +82,23 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused && widget.execute && !_stopped) {
+    if (state == AppLifecycleState.paused &&
+        widget.execute &&
+        !_stopped &&
+        widget.app.attendance.ownsOperation(_operation)) {
       unawaited(widget.app.attendance.cancel());
       unawaited(_stop());
     }
   }
 
-  Future<void> _open() async {
+  Future<void> _open({bool refresh = false}) async {
+    final opening = ++_openGeneration;
     try {
       final tabs = await widget.app.attendanceBackend.tabs(
         widget.meeting.canvasId,
+        refresh: refresh,
       );
-      if (!_active) return;
+      if (!_active || opening != _openGeneration) return;
       if (['login', 'canvas_login'].contains(tabs['status'])) {
         if (_canvasSessionAttempted) {
           _failure('Canvas 登录尚未完成，请返回后重试');
@@ -110,7 +123,7 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
         return;
       }
       if (tabs['status'] != 'ok') {
-        _failure('暂时无法读取课程入口，请检查网络与课程访问权限');
+        _failure(attendanceEntryFailure('${tabs['status']}'));
         return;
       }
       final raw = tabs[widget.execute ? 'liveUrl' : 'attendanceUrl'];
@@ -121,11 +134,14 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
           !RegExp(
             '^/courses/${widget.meeting.canvasId}/external_tools/'
             r'[0-9]+$',
-          ).hasMatch(uri.path)) {
+          ).hasMatch(uri.path) ||
+          uri.userInfo.isNotEmpty ||
+          (uri.hasPort && uri.port != 443)) {
         _failure(widget.execute ? '当前课程未提供“课堂视频新版”入口' : '当前课程未提供“点名签到”入口');
         return;
       }
-      _sawCourse = true; // The authenticated tabs response binds this URL to the exact course ID.
+      _sawCourse =
+          true; // The authenticated tabs response binds this URL to the exact course ID.
       final web = WebViewController();
       _web = web;
       _auth = SchoolWebAuthenticator(web);
@@ -137,6 +153,7 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
       await web.setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: (request) {
+            if (opening != _openGeneration) return NavigationDecision.prevent;
             final target = Uri.tryParse(request.url);
             if (_stopped && target?.scheme != 'about') {
               return NavigationDecision.prevent;
@@ -148,12 +165,17 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
             return NavigationDecision.navigate;
           },
           onPageStarted: (_) {
+            if (opening != _openGeneration) return;
             _generation++;
             _connected = false;
           },
-          onPageFinished: (_) => unawaited(_inspect()),
+          onPageFinished: (_) {
+            if (opening == _openGeneration) unawaited(_inspect());
+          },
           onWebResourceError: (error) {
-            if (error.isForMainFrame == true) _failure('页面加载失败，请返回后重试');
+            if (opening == _openGeneration && error.isForMainFrame == true) {
+              _failure('页面加载失败，请返回后重试');
+            }
           },
         ),
       );
@@ -171,7 +193,9 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
         if (_active && !_captureBusy) unawaited(_inspect());
       });
     } catch (_) {
-      if (mounted) _failure('课程入口暂不可用，请先完成 Canvas 登录');
+      if (mounted && opening == _openGeneration && _active) {
+        _failure('课程入口请求失败或超时，请检查网络后重试');
+      }
     }
   }
 
@@ -287,9 +311,8 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
           }
         }
         setState(
-          () => _message = frame['message'] is String
-              ? frame['message']
-              : '等待直播开始或点击播放',
+          () => _message =
+              frame['message'] is String ? frame['message'] : '等待直播开始或点击播放',
         );
         return;
       }
@@ -301,7 +324,7 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
         return;
       }
       _previousVideoTime = currentTime;
-      widget.app.attendance.scanning();
+      widget.app.attendance.scanning(operation: _operation);
       if (_webId == null) {
         _failure('当前设备不支持应用内视频识别');
         return;
@@ -312,7 +335,7 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
           for (final key in ['x', 'y', 'width', 'height']) key: frame[key],
         });
         if (_active && epoch == _generation && qr != null) {
-          widget.app.attendance.acceptQr(qr);
+          widget.app.attendance.acceptQr(qr, operation: _operation);
         }
         _frameFailures = 0;
       } catch (_) {
@@ -329,29 +352,86 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
 
   void _failure(String message) {
     if (!mounted || _stopped) return;
-    if (widget.execute) {
-      widget.app.attendance.report(AttendancePhase.failed, message);
-    }
     unawaited(_stop());
+    if (widget.execute) {
+      widget.app.attendance.report(
+        AttendancePhase.failed,
+        message,
+        operation: _operation,
+      );
+    }
     setState(() => _message = message);
   }
 
-  Future<void> _stop() async {
-    if (_stopped) return;
+  Future<void> _stop() {
+    if (_stopping != null) return _stopping!;
     _stopped = true;
+    _openGeneration++;
     _generation++;
     _sampling?.cancel();
     _limit?.cancel();
+    final web = _web;
+    final id = _webId;
+    _web = null;
+    return _stopping = _release(web, id);
+  }
+
+  Future<void> _release(WebViewController? web, int? id) async {
     try {
-      if (_webId != null) {
-        await widget.app.attendanceBackend.releaseWeb(_webId!);
+      if (id != null) {
+        await widget.app.attendanceBackend.releaseWeb(id);
       }
-      await _web?.loadHtmlString('<html><body></body></html>');
+      await web?.loadHtmlString('<html><body></body></html>');
     } catch (_) {}
   }
 
+  Future<void> _retry() async {
+    if (_retrying || !widget.app.attendance.enabled) return;
+    setState(() => _retrying = true);
+    try {
+      await _stop();
+      if (widget.execute) {
+        final record = _executionRecord;
+        if (record == null ||
+            !await widget.app.attendance.retryExecution(
+              record,
+              widget.meeting,
+            )) {
+          if (mounted) {
+            setState(
+              () => _message = widget.app.attendance.detail.isEmpty
+                  ? '当前签到已完成或检测窗口已结束，请返回检查记录'
+                  : widget.app.attendance.detail,
+            );
+          }
+          return;
+        }
+        _operation = widget.app.attendance.operation;
+      }
+      if (!mounted) return;
+      setState(() {
+        _stopped = false;
+        _stopping = null;
+        _web = null;
+        _auth = null;
+        _message = '正在重新读取课程入口…';
+        _canvasSessionAttempted = false;
+        _canvasAttempts = 0;
+        _loginAttempts = 0;
+        _frameFailures = 0;
+        _previousVideoTime = null;
+        _visitedFrames.clear();
+        _sawCourse = false;
+        _connected = false;
+      });
+      await _open(refresh: true);
+    } finally {
+      if (mounted) setState(() => _retrying = false);
+    }
+  }
+
   Future<void> _cancel() async {
-    if (widget.execute && widget.app.attendance.executing) {
+    if (widget.execute && widget.app.attendance.ownsOperation(_operation)) {
       await widget.app.attendance.cancel();
     }
     await _stop();
@@ -363,7 +443,7 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
     widget.app.attendance.removeListener(_stateChanged);
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_stop());
-    if (widget.execute && widget.app.attendance.executing) {
+    if (widget.execute && widget.app.attendance.ownsOperation(_operation)) {
       unawaited(widget.app.attendance.cancel());
     }
     super.dispose();
@@ -371,36 +451,65 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(widget.execute ? '执行签到' : '连接点名签到'),
-      leading: IconButton(
-        onPressed: _cancel,
-        icon: const Icon(Icons.arrow_back),
-      ),
-      actions: [TextButton(onPressed: _cancel, child: const Text('取消'))],
-    ),
-    body: Column(
-      children: [
-        ListTile(
-          leading: const Icon(Icons.qr_code_scanner),
-          title: Text(widget.meeting.course.name),
-          subtitle: Text(
-            widget.execute && !_stopped
-                ? widget.app.attendance.phase.label
-                : _message,
+        appBar: AppBar(
+          title: Text(widget.execute ? '执行签到' : '连接点名签到'),
+          leading: IconButton(
+            onPressed: _cancel,
+            icon: const Icon(Icons.arrow_back),
           ),
+          actions: [TextButton(onPressed: _cancel, child: const Text('取消'))],
         ),
-        if (!_stopped && !_connected)
-          const LinearProgressIndicator(minHeight: 2),
-        Expanded(
-          child: _web == null || _stopped
-              ? Center(child: Text(_message))
-              : WebViewWidget(controller: _web!),
+        body: Column(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner),
+              title: Text(widget.meeting.course.name),
+              subtitle: Text(
+                widget.execute && !_stopped
+                    ? widget.app.attendance.phase.label
+                    : _message,
+              ),
+            ),
+            if (!_stopped && !_connected)
+              const LinearProgressIndicator(minHeight: 2),
+            Expanded(
+              child: _web == null || _stopped
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(_message, textAlign: TextAlign.center),
+                            if (_stopped && widget.app.attendance.enabled) ...[
+                              const SizedBox(height: 16),
+                              FilledButton.icon(
+                                onPressed: _retrying ? null : _retry,
+                                icon: const Icon(Icons.refresh),
+                                label: Text(_retrying ? '正在重试…' : '重试当前课程'),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    )
+                  : WebViewWidget(controller: _web!),
+            ),
+          ],
         ),
-      ],
-    ),
-  );
+      );
 }
+
+String attendanceEntryFailure(String status) => switch (status) {
+      'canvas_login' || 'login' => 'Canvas 登录已失效，请完成登录后重试',
+      'permission' => '当前账号无权访问这门课程，请核对 Canvas 课程权限',
+      'timeout' => '读取课程入口超时，请检查网络后重试',
+      'network' => '读取课程入口时网络连接失败，请恢复网络后重试',
+      'server' => 'Canvas 服务暂时异常，请稍后重试当前课程',
+      'format' => '课程入口响应无法解析，请重试或在 Canvas 中检查课程',
+      'no_entry' => '当前课程确实未提供所需入口',
+      _ => '课程入口暂不可用，请重试当前课程',
+    };
 
 /// Reads the actual displayed player. It never selects a replay, pauses the
 /// video to retain an old QR, or assumes a Canvas tool/player URL.

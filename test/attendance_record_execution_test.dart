@@ -154,6 +154,7 @@ void main() {
       AttendanceRecord(
           key: '91:next', canvasId: '91', createdAt: time, state: 'UNNORMAL')
     ];
+    b.now = b.now.add(const Duration(seconds: 30));
     await c.check();
     expect(c.pendingRecord?.key, '91:next');
     await c.setEnabled(false);

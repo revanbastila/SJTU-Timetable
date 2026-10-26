@@ -38,16 +38,17 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
   bool _manualBusy = false;
   List<AttendanceMeeting> _courses() {
     final now = DateTime.now();
-    final meetings = AttendanceSchedule.meetings(
-      now,
-      widget.app.getEffectiveCoursesForDate,
-      days: 14,
-    )..sort(
-        (a, b) => a.start
-            .difference(now)
-            .abs()
-            .compareTo(b.start.difference(now).abs()),
-      );
+    final meetings =
+        AttendanceSchedule.meetings(
+          now,
+          widget.app.getEffectiveCoursesForDate,
+          days: 14,
+        )..sort(
+          (a, b) => a.start
+              .difference(now)
+              .abs()
+              .compareTo(b.start.difference(now).abs()),
+        );
     final byId = <String, AttendanceMeeting>{};
     for (final meeting in meetings) {
       byId.putIfAbsent(meeting.canvasId, () => meeting);
@@ -124,9 +125,9 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
                 '课前 10 分钟至课后 10 分钟，每 30 秒检查。后台使用带常驻通知的原生服务；需允许准时启动，且受系统省电与网络限制。Android 15 及以上后台同步服务累计时限为 24 小时内 6 小时，达到时限或启动受限后降级为系统周期检查（最短 15 分钟）。后台发现签到通过通知进入执行弹窗。',
               ),
               const SizedBox(height: 8),
-              Text(_monitor['running'] == true
-                  ? '课程检测服务已启动'
-                  : '检测服务等待课程窗口或系统允许'),
+              Text(
+                _monitor['running'] == true ? '课程检测服务已启动' : '检测服务等待课程窗口或系统允许',
+              ),
               if (_monitor['error'] is String &&
                   (_monitor['error'] as String).isNotEmpty)
                 Text(_monitor['error']),
@@ -134,9 +135,10 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
                 const Text('当前应用消息通知关闭，后台新增签到不会弹出通知；请按需开启原有消息通知设置。'),
               if (_monitor['exact'] == false)
                 OutlinedButton(
-                    onPressed:
-                        widget.app.attendanceBackend.openExactAlarmSettings,
-                    child: const Text('允许在课程窗口准时启动')),
+                  onPressed:
+                      widget.app.attendanceBackend.openExactAlarmSettings,
+                  child: const Text('允许在课程窗口准时启动'),
+                ),
               const SizedBox(height: 16),
               if (courses.isEmpty)
                 const Text('暂无已匹配 Canvas ID 的课程，请先同步或确认课程映射。')
@@ -151,17 +153,18 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
                     title: Text(meeting.course.name),
                     subtitle:
                         app.attendance.recordSnapshots[meeting.canvasId] == null
-                            ? null
-                            : Text(
-                                app.attendance
-                                    .recordSnapshots[meeting.canvasId]!.summary,
-                              ),
+                        ? null
+                        : Text(
+                            '${app.attendance.recordSnapshots[meeting.canvasId]!.summary}'
+                            '${app.attendance.recordFailures[meeting.canvasId] == null || !app.attendance.recordSnapshots[meeting.canvasId]!.successful ? '' : '\n本次检测：${app.attendance.recordFailures[meeting.canvasId]!.summary}；保留上次记录'}',
+                          ),
                     onTap: _manualBusy ? null : () => _inspect(meeting),
                     trailing: IconButton(
                       icon: const Icon(Icons.chevron_right),
                       tooltip: '打开点名签到',
-                      onPressed:
-                          app.attendance.enabled ? () => _open(meeting) : null,
+                      onPressed: app.attendance.enabled
+                          ? () => _open(meeting)
+                          : null,
                     ),
                   ),
               ],

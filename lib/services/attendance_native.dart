@@ -9,7 +9,8 @@ class NativeAttendanceBackend
     implements
         AttendanceBackend,
         AttendanceRecordBackend,
-        AttendanceRecordExecutionBackend {
+        AttendanceRecordExecutionBackend,
+        AttendancePresentationBackend {
   static const channel = MethodChannel('cn.sjtu.jiaotong_course/attendance');
   bool _foreground = true;
   final StreamController<String> _events = StreamController.broadcast();
@@ -33,14 +34,16 @@ class NativeAttendanceBackend
   }
 
   @override
-  Future<AttendanceSnapshot> inspectRecords(AttendanceMeeting meeting,
-      {bool manual = false}) async {
+  Future<AttendanceSnapshot> inspectRecords(
+    AttendanceMeeting meeting, {
+    bool manual = false,
+  }) async {
     try {
       final data = await _map('records', {
         'courseId': meeting.canvasId,
         'name': meeting.course.name,
         'manual': manual,
-      }).timeout(const Duration(seconds: 45));
+      }).timeout(const Duration(seconds: 85));
       final records = <AttendanceRecord>[];
       if (data['status'] == 'ok') {
         if (data['courseId'] != meeting.canvasId || data['records'] is! List) {
@@ -76,11 +79,22 @@ class NativeAttendanceBackend
           isUtc: true,
         ),
         records: records,
+        nextCheckDelay: data['nextCheckDelayMs'] is int
+            ? Duration(
+                milliseconds:
+                    (data['nextCheckDelayMs'] as int).clamp(1, 300000))
+            : null,
         failure: data['status'] == 'ok' ? '' : '${data['status'] ?? 'format'}',
         warning: (data['invalidRecords'] is int && data['invalidRecords'] > 0)
             ? '部分记录格式异常，未用于提醒'
             : '',
       );
+    } on PlatformException catch (error) {
+      return AttendanceSnapshot(
+          canvasId: meeting.canvasId,
+          checkedAt: DateTime.now(),
+          records: [],
+          failure: error.code == 'cancelled' ? 'cancelled' : 'network');
     } on TimeoutException {
       return AttendanceSnapshot(
         canvasId: meeting.canvasId,
@@ -116,7 +130,9 @@ class NativeAttendanceBackend
     _foreground = value;
     try {
       await channel.invokeMethod<void>('recordForeground', value);
-    } catch (_) {/* Background JobScheduler remains system-controlled. */}
+    } catch (_) {
+      /* Background JobScheduler remains system-controlled. */
+    }
   }
 
   @override
@@ -198,8 +214,11 @@ class NativeAttendanceBackend
   }
 
   @override
-  Future<AttendanceSubmitResult> submitRecord(AttendanceRecord record,
-      AttendanceMeeting meeting, AttendanceQr qr) async {
+  Future<AttendanceSubmitResult> submitRecord(
+    AttendanceRecord record,
+    AttendanceMeeting meeting,
+    AttendanceQr qr,
+  ) async {
     final data = await _map('submitRecord', {
       'courseId': meeting.canvasId,
       'recordKey': record.key,
@@ -211,14 +230,18 @@ class NativeAttendanceBackend
     }
     if (status == 'unverified_task') {
       throw const AttendanceFailure(
-          AttendancePhase.limited, '无法确认二维码与本次签到的关联，请在学校页面核实');
+        AttendancePhase.limited,
+        '无法确认二维码与本次签到的关联，请在学校页面核实',
+      );
     }
     if (status == 'wrong_course') {
       throw const AttendanceFailure(AttendancePhase.failed, '二维码不属于当前课程，已停止提交');
     }
     if (status != 'ok') {
       throw const AttendanceFailure(
-          AttendancePhase.failed, '签到请求未获确认，请检查网络或学校页面');
+        AttendancePhase.failed,
+        '签到请求未获确认，请检查网络或学校页面',
+      );
     }
     return parseAttendanceResult(200, data['body']);
   }
@@ -286,8 +309,15 @@ class NativeAttendanceBackend
         'key': taskKey,
         'until': until.millisecondsSinceEpoch,
       });
-  Future<Map<String, dynamic>> tabs(String courseId) =>
-      _map('tabs', {'courseId': courseId});
+  Future<Map<String, dynamic>> tabs(String courseId, {bool refresh = false}) =>
+      _map('tabs', {
+        'courseId': courseId,
+        'refresh': refresh,
+      }).timeout(const Duration(seconds: 40));
+
+  @override
+  Future<void> recordDisplayed(AttendanceRecord record) =>
+      channel.invokeMethod<void>('recordDisplayed', {'recordKey': record.key});
   Future<void> saveConnection(
     String canvasId,
     String courseCode,

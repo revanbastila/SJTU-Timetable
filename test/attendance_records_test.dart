@@ -159,6 +159,7 @@ void main() {
       row('a', start, 'NORMAL'),
       row('b', start.add(const Duration(minutes: 5)), 'NORMAL')
     ];
+    b.now = b.now.add(const Duration(seconds: 30));
     await c.check();
     expect(c.pendingRecord, isNull);
     expect(c.phase, AttendancePhase.completed);

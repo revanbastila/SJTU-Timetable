@@ -59,11 +59,18 @@ object AttendanceSync {
     private const val JOB = 4127
     private const val HOST = "mlearning.sjtu.edu.cn"
     private const val BASE = "https://$HOST/lms-lti-rollcall-sjtu"
-    private val work = Executors.newSingleThreadExecutor()
+    private val work = Executors.newFixedThreadPool(4)
+    private val executionRevision = AtomicInteger()
+    private val executingRequest = ThreadLocal<Boolean>()
+    private val executionRequests = java.util.Collections.synchronizedSet(mutableSetOf<HttpURLConnection>())
+    private val polling = AttendancePolling<JSONObject>({ SystemClock.elapsedRealtime() },
+        { it.optString("status")=="ok" }, { it.optString("status")!="cancelled" })
+    private val entryLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+    private val scheduledCourses = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    private val presentedHere = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     private val main = Handler(Looper.getMainLooper())
     private val revision = AtomicInteger()
     private val recordLock = Any()
-    private val automaticReads = java.util.concurrent.ConcurrentHashMap<String,Pair<Long,JSONObject>>()
     private var channel: MethodChannel? = null
     @Volatile private var appForeground = false
     private val activeRequests = java.util.Collections.synchronizedSet(mutableSetOf<HttpURLConnection>())
@@ -80,7 +87,9 @@ object AttendanceSync {
                         appForeground = call.argument<Boolean>("foreground") == true
                         val account = call.argument<String>("account") ?: ""
                         synchronized(recordLock) {
-                            if (p.getString("account", "") != account) p.edit().clear().commit()
+                            if (p.getString("account", "") != account) {
+                                p.edit().clear().commit(); polling.clear(); entryLocks.clear(); presentedHere.clear()
+                            }
                             val enabled = call.argument<Boolean>("enabled") == true && account.isNotBlank()
                             val windows = JSONArray(call.argument<List<Map<String, Any?>>>("meetings") ?: emptyList<Any>())
                             p.edit().putString("account", account).putBoolean("enabled", enabled)
@@ -105,8 +114,8 @@ object AttendanceSync {
                     result.success(null)
                 }
                 "cancel" -> {
-                    revision.incrementAndGet()
-                    synchronized(activeRequests) { activeRequests.toList().forEach { it.disconnect() } }
+                    executionRevision.incrementAndGet()
+                    synchronized(executionRequests) { executionRequests.toList().forEach { it.disconnect() } }
                     frame.cancel(); cancelNotifications(activity); result.success(null)
                 }
                 "notificationPermission" -> activity.requestAttendanceNotificationPermission(result)
@@ -137,12 +146,14 @@ object AttendanceSync {
                     val key = call.argument<String>("recordKey") ?: ""
                     result.success(claim(activity,id,key,call.argument<Boolean>("foreground") == true))
                 }
+                "recordDisplayed" -> {
+                    val key = call.argument<String>("recordKey") ?: ""
+                    updateReminder(activity, key, "shown")
+                    result.success(null)
+                }
                 "ackRecord" -> {
                     val key=call.argument<String>("recordKey") ?: ""
-                    synchronized(recordLock) {
-                        val queue=JSONObject(prefs(activity).getString("record_queue_v2","{}")!!)
-                        queue.remove(key);prefs(activity).edit().putString("record_queue_v2",queue.toString()).commit()
-                    }
+                    updateReminder(activity, key, "handled")
                     activity.getSystemService(NotificationManager::class.java).cancel("attendance",key.hashCode())
                     result.success(null)
                 }
@@ -151,30 +162,28 @@ object AttendanceSync {
                     val key = call.argument<String>("recordKey") ?: ""
                     val row = cachedRows(activity,id).firstOrNull { it.optString("key") == key }
                     if (row != null && isCurrent(activity,id,row)) {
-                        synchronized(recordLock) {
-                            val queue = JSONObject(prefs(activity).getString("record_queue_v2","{}")!!)
-                            queue.put(key,true); prefs(activity).edit().putString("record_queue_v2",queue.toString()).commit()
-                        }
-                        notify(activity,key,call.argument<String>("name") ?: "课程")
+                        deliverNotification(activity,key,call.argument<String>("name") ?: "课程")
                     }
                     result.success(null)
                 }
                 "notify", "acknowledge" -> result.success(null) // legacy channel, no submission.
                 "tabs", "records", "submitRecord" -> {
                     val generation = revision.get()
+                    val execution = executionRevision.get()
                     val args = call.arguments as? Map<*, *> ?: emptyMap<Any,Any>()
                     work.execute {
                         val id = args["courseId"]?.toString() ?: ""
                         val response = try {
-                            if (call.method == "tabs") tabs(id)
-                            else if (call.method == "submitRecord") submitRecord(activity,id,JSONObject(args),generation)
-                            else if (args["manual"] == true) inspect(activity,id,generation,args["name"]?.toString() ?: "课程")
-                            else automaticInspect(activity,id,generation,args["name"]?.toString() ?: "课程")
+                            executingRequest.set(call.method == "submitRecord")
+                            if (call.method == "tabs") tabs(activity,id,generation, args["refresh"] == true)
+                            else if (call.method == "submitRecord") submitRecord(activity,id,JSONObject(args),generation,execution)
+                            else readRecords(activity,id,generation,args["manual"] == true,"foreground")
                         } catch (e: ReadFailure) { failure(id,e.reason) }
                         catch (_: java.io.IOException) { failure(id,"network") }
                         catch (_: Exception) { failure(id,"format") }
+                        executingRequest.remove()
                         main.post {
-                            if (generation != revision.get()) result.error("cancelled", "操作已取消", null)
+                            if (generation != revision.get() || (call.method == "submitRecord" && execution != executionRevision.get())) result.error("cancelled", "操作已取消", null)
                             else result.success(jsonValue(response))
                         }
                     }
@@ -191,10 +200,9 @@ object AttendanceSync {
         if (!value) AttendanceMonitorService.kick()
     }
     fun nextAutomaticDelay(c: Context): Long {
-        val now=SystemClock.elapsedRealtime()
-        val generation=revision.get()
+        val account=prefs(c).getString("account", "")
         return AttendanceMonitor.active(c).map {
-            automaticReads["$generation:${it.optString("courseId")}"]?.first?.let { start -> (start+30_000-now).coerceAtLeast(1) } ?: 1L
+            polling.delay("$account:${it.optString("courseId")}")
         }.minOrNull() ?: 30_000L
     }
     fun timeChanged() { channel?.invokeMethod("timeChanged", null) }
@@ -208,6 +216,7 @@ object AttendanceSync {
         require(target.protocol == "https" && target.host in listOf(HOST, "oc.sjtu.edu.cn"))
         val c = target.openConnection() as HttpURLConnection
         activeRequests.add(c)
+        if (executingRequest.get() == true) executionRequests.add(c)
         try {
             val remaining = (deadline-System.currentTimeMillis()).coerceAtMost(10_000).toInt()
             if (remaining <= 0) throw java.net.SocketTimeoutException()
@@ -217,7 +226,7 @@ object AttendanceSync {
             c.setRequestProperty("Accept", "application/json")
             c.setRequestProperty("Cache-Control","no-cache, no-store")
             c.setRequestProperty("request-ajax","true")
-            c.setRequestProperty("User-Agent", "SJTU-Timetable/1.14.27.3 Android")
+            c.setRequestProperty("User-Agent", "SJTU-Timetable/1.14.27.4 Android")
             val cookies = CookieManager.getInstance().getCookie(url) ?: ""
             if (cookies.isNotBlank()) c.setRequestProperty("Cookie", cookies)
             if (target.host == HOST && token.isNotBlank()) c.setRequestProperty("Authorization", token)
@@ -239,7 +248,7 @@ object AttendanceSync {
                 throw ReadFailure(if(target.host==HOST) "session_login" else "canvas_login")
             }
             return if (text.trimStart().startsWith("[")) JSONObject().put("tabs",JSONArray(text)) else JSONObject(text)
-        } finally { activeRequests.remove(c); c.disconnect() }
+        } finally { activeRequests.remove(c); executionRequests.remove(c); c.disconnect() }
     }
     private fun body(reply: JSONObject): Any? {
         if (reply.optString("code") == "401") throw ReadFailure("session_login")
@@ -249,44 +258,72 @@ object AttendanceSync {
         if (code != "200") throw ReadFailure("server")
         return reply.opt("body").takeUnless { it == JSONObject.NULL }
     }
-    private fun connection(c: Context, id: String): Pair<String,String> {
+    private fun connection(c: Context, id: String, generation: Int): Pair<String,String> = synchronized(entryLocks.getOrPut(id) { Any() }) {
+        if(generation!=revision.get()) throw ReadFailure("cancelled")
         val p=prefs(c)
         val raw=p.getString("connection_$id",null)
         if(raw!=null) {
-            try { val data=JSONObject(raw);return data.getString("courseCode") to AttendanceSecrets.open(data.getString("sealed")) }
+            try { val data=JSONObject(raw);return@synchronized data.getString("courseCode") to AttendanceSecrets.open(data.getString("sealed")) }
             catch(_: Exception) { p.edit().remove("connection_$id").apply() }
         }
-        val launch=tabs(id).optString("attendanceUrl")
+        val entries=tabs(c,id,generation)
+        if (entries.optString("status") != "ok") throw ReadFailure(entries.optString("status", "format"))
+        val launch=entries.optString("attendanceUrl")
         if(launch.isBlank()) throw ReadFailure("no_entry")
         val now=System.currentTimeMillis()
         if(now<p.getLong("bootstrap_next_$id",0)) throw ReadFailure(p.getString("bootstrap_reason_$id","connect_required") ?: "connect_required")
-        val generation=revision.get()
         val session=AttendanceSessionResolver.resolve(c,launch) { generation==revision.get() }
         if(generation!=revision.get()) throw ReadFailure("cancelled")
         if(session.reason.isNotEmpty()) {
-            p.edit().putLong("bootstrap_next_$id",now+5*60_000).putString("bootstrap_reason_$id",session.reason).apply()
+            p.edit().putLong("bootstrap_next_$id",now + if(session.reason in listOf("canvas_login","session_login","connect_required")) 5*60_000 else 30_000).putString("bootstrap_reason_$id",session.reason).apply()
             throw ReadFailure(session.reason)
         }
-        p.edit().putString("connection_$id",JSONObject().put("courseCode",session.code)
-            .put("sealed",AttendanceSecrets.seal(session.token)).toString()).remove("bootstrap_next_$id").remove("bootstrap_reason_$id").commit()
-        Log.i("AttendanceRecords","course=$id source=canvas_lti session=connected")
-        return session.code to session.token
-    }
-    private fun tabs(id: String): JSONObject {
-        require(id.matches(Regex("[0-9]+")))
-        val list = request("https://oc.sjtu.edu.cn/api/v1/courses/$id/tabs?per_page=100").getJSONArray("tabs")
-        val out = JSONObject().put("status","ok")
-        for (i in 0 until list.length()) {
-            val row = list.optJSONObject(i) ?: continue
-            if (row.optBoolean("hidden")) continue
-            val label = row.optString("label").replace(Regex("[\\s（）()·]"), "")
-            val uri = try { android.net.Uri.parse(URL(URL("https://oc.sjtu.edu.cn/"),row.optString("html_url")).toString()) }
-                catch (_: Exception) { continue }
-            if (uri.scheme != "https" || uri.host != "oc.sjtu.edu.cn" ||
-                !uri.path.orEmpty().matches(Regex("/courses/$id/external_tools/[0-9]+"))) continue
-            if (label == "点名签到") out.put("attendanceUrl",uri.toString())
-            if (label.contains("课堂视频") && label.contains("新版") && !label.contains("旧版")) out.put("liveUrl",uri.toString())
+        synchronized(recordLock) {
+            if(generation!=revision.get()) throw ReadFailure("cancelled")
+            p.edit().putString("connection_$id",JSONObject().put("courseCode",session.code)
+                .put("sealed",AttendanceSecrets.seal(session.token)).toString()).remove("bootstrap_next_$id").remove("bootstrap_reason_$id").commit()
         }
+        Log.i("AttendanceRecords","course=$id source=canvas_lti session=connected")
+        session.code to session.token
+    }
+    private fun tabs(c: Context, id: String, generation: Int, refresh: Boolean = false): JSONObject {
+        require(id.matches(Regex("[0-9]+")))
+        val p=prefs(c)
+        val account=p.getString("account", "")
+        fun valid() = generation == revision.get() && account == p.getString("account", "")
+        var reason="format"
+        val started=SystemClock.elapsedRealtime()
+        val fresh=try {
+            val list=request("https://oc.sjtu.edu.cn/api/v1/courses/$id/tabs?per_page=100").getJSONArray("tabs")
+            JSONObject().put("status","ok").put("source","tabs_api").also { out ->
+                for(i in 0 until list.length()) {
+                    val row=list.optJSONObject(i) ?: throw ReadFailure("format")
+                    if (!row.optBoolean("hidden")) AttendanceCourseEntries.put(out,id,row.optString("label"),row.optString("html_url"))
+                }
+            }
+        } catch(e: Exception) {
+            reason=if(e is ReadFailure)e.reason else if(e is java.net.SocketTimeoutException)"timeout" else if(e is java.io.IOException)"network" else "format"
+            null
+        }
+        if (!valid()) throw ReadFailure("cancelled")
+        val out=if(fresh!=null) fresh else {
+            // Persist only verified positive URLs, isolated by the account prefs.
+            val cached=try { JSONObject(p.getString("entries_$id", "{}")!!) } catch(_: Exception) { JSONObject() }
+            if (!refresh && cached.optLong("verifiedAt") > System.currentTimeMillis()-24*60*60_000L &&
+                (cached.has("attendanceUrl") || cached.has("liveUrl")) && reason !in listOf("canvas_login", "permission")) {
+                cached.put("status","ok").put("source","verified_cache").put("warning",reason)
+            } else {
+                val fallback=AttendanceCourseEntries.discover(c,id,::valid)
+                if(fallback.optString("status") == "ok") fallback
+                else JSONObject().put("status", if (fallback.optString("status") in listOf("canvas_login","permission")) fallback.optString("status") else reason)
+            }
+        }
+        if (!valid()) throw ReadFailure("cancelled")
+        if(out.optString("status")=="ok" && out.optString("source")!="verified_cache" && (out.has("attendanceUrl") || out.has("liveUrl"))) {
+            out.put("verifiedAt",System.currentTimeMillis())
+            synchronized(recordLock) { if(valid()) p.edit().putString("entries_$id",out.toString()).commit() }
+        }
+        Log.i("AttendanceRecords","course=$id source=entries status=${out.optString("status")} via=${out.optString("source")} elapsed=${SystemClock.elapsedRealtime()-started}")
         return out
     }
     private fun parseDate(text: String): Long? {
@@ -302,7 +339,7 @@ object AttendanceSync {
     private fun inspect(c: Context, id: String, generation: Int, name: String): JSONObject {
         if (generation != revision.get()) throw ReadFailure("cancelled")
         require(id.matches(Regex("[0-9]+")))
-        val (code,token) = connection(c,id)
+        val (code,token) = connection(c,id,generation)
         val deadline = System.currentTimeMillis()+20_000
         val rows = linkedMapOf<String,JSONObject>(); var count=0; var invalid=0; var page=1
         do {
@@ -339,11 +376,13 @@ object AttendanceSync {
             if (generation != revision.get()) throw ReadFailure("cancelled")
             p.edit().putStringSet("observed_$id",rows.keys.toSet()).putString("snapshot_$id",JSONArray(sorted).toString()).commit()
             val queue = JSONObject(p.getString("record_queue_v2","{}")!!)
+            val states=reminders(c)
             for (row in sorted) if (!isCurrent(c,id,row)) {
+                states.remove(row.getString("key"))
                 queue.remove(row.getString("key"))
                 c.getSystemService(NotificationManager::class.java).cancel("attendance",row.getString("key").hashCode())
             }
-            p.edit().putString("record_queue_v2",queue.toString()).commit()
+            p.edit().putString("record_queue_v2",queue.toString()).putString("record_reminders_v3",states.toString()).commit()
         }
         val latest = sorted.firstOrNull()
         val safeName=name.replace(Regex("[\\r\\n\\t]")," ").take(80)
@@ -351,11 +390,11 @@ object AttendanceSync {
         return JSONObject().put("status","ok").put("courseId",id).put("checkedAt",System.currentTimeMillis())
             .put("records",JSONArray(sorted)).put("invalidRecords",invalid)
     }
-    private fun submitRecord(c: Context,id: String,args: JSONObject,generation: Int): JSONObject {
+    private fun submitRecord(c: Context,id: String,args: JSONObject,generation: Int, execution: Int): JSONObject {
         // Submission is only reached from the user's execution dialog while
         // that app-owned player is foreground. No poller calls this method.
         if (!appForeground || !prefs(c).getBoolean("enabled",false)) throw ReadFailure("cancelled")
-        val (code,token)=connection(c,id)
+        val (code,token)=connection(c,id,generation)
         val qr=android.net.Uri.parse(args.getString("qr"))
         require(qr.scheme=="https" && qr.host==HOST && qr.port in listOf(-1,443) && qr.userInfo==null && qr.fragment==null &&
             qr.path in listOf("/lms/mobile2/forscan/","/lms/mobile2/forscan"))
@@ -376,21 +415,25 @@ object AttendanceSync {
             catch(_: Exception) { null }
         if(metadata==null || metadata.optString("id")!=task || metadata.optString("courseCode")!=code ||
             parseDate(metadata.optString("createdDate"))!=row.optLong("createdAt")) throw ReadFailure("unverified_task")
-        if(generation!=revision.get() || !appForeground || !isCurrent(c,id,row)) throw ReadFailure("cancelled")
+        if(generation!=revision.get() || execution!=executionRevision.get() || !appForeground || !isCurrent(c,id,row)) throw ReadFailure("cancelled")
         val reply=request("$BASE/sign/scan/${enc(rollToken)}/${enc(task)}",token)
         Log.i("AttendanceRecords","course=$id source=qr_submit response_received=true")
         return JSONObject().put("status","ok").put("body",reply)
     }
-    private fun automaticInspect(c: Context,id: String,generation: Int,name: String): JSONObject {
-        // Serialized on work: foreground/background handover never starts a
-        // second request for the same course in one 30-second slot.
-        val now=android.os.SystemClock.elapsedRealtime()
-        automaticReads["$generation:$id"]?.let { if(now-it.first in 0 until 30_000) return it.second }
-        val response=try { inspect(c,id,generation,name) }
-            catch(e: Exception) { failure(id,if(e is ReadFailure)e.reason else if(e is java.io.IOException)"network" else "format") }
-        automaticReads.keys.removeAll { !it.startsWith("$generation:") }
-        automaticReads["$generation:$id"]=now to response
-        return response
+    private fun readRecords(c: Context,id: String,generation: Int,manual: Boolean,source: String): JSONObject {
+        val account=prefs(c).getString("account", "")
+        val key="$account:$id"
+        val result=polling.read(key,manual) {
+            val started=SystemClock.elapsedRealtime()
+            val window=AttendanceMonitor.active(c).firstOrNull { it.optString("courseId")==id }
+            Log.i("AttendanceRecords","course=$id source=$source request=start elapsed=$started manual=$manual window_start=${window?.optLong("start")} window_end=${window?.optLong("end")}")
+            if(manual) prefs(c).edit().remove("bootstrap_next_$id").apply()
+            val response=try { inspect(c,id,generation,"课程") }
+                catch(e: Exception) { failure(id,if(e is ReadFailure)e.reason else if(e is java.net.SocketTimeoutException)"timeout" else if(e is java.io.IOException)"network" else "format") }
+            Log.i("AttendanceRecords","course=$id source=$source request=end elapsed=${SystemClock.elapsedRealtime()} status=${response.optString("status")}")
+            response
+        }
+        return JSONObject(result.toString()).put("nextCheckDelayMs",polling.delay(key))
     }
     private fun cachedRows(c: Context,id: String): List<JSONObject> {
         val rows = JSONArray(prefs(c).getString("snapshot_$id","[]"))
@@ -405,20 +448,47 @@ object AttendanceSync {
             w.optString("courseId")==id && now>=start && now<end && created>=start && created<end && created<=now
         }
     }
+    private fun reminders(c: Context): JSONObject {
+        val p=prefs(c)
+        if (p.contains("record_reminders_v3")) return JSONObject(p.getString("record_reminders_v3","{}")!!)
+        val out=JSONObject()
+        val old=JSONObject(p.getString("record_queue_v2","{}")!!)
+        val seen=JSONArray(p.getString("record_seen_v2","[]"))
+        for(i in 0 until seen.length()) out.put(seen.getString(i),JSONObject().put("state",if(old.optBoolean(seen.getString(i))) "pending" else "shown"))
+        return out
+    }
     private fun claim(c: Context,id: String,key: String,foreground: Boolean): Boolean = synchronized(recordLock) {
         val row=cachedRows(c,id).firstOrNull { it.optString("key")==key } ?: return@synchronized false
         if (!isCurrent(c,id,row)) return@synchronized false
-        val p=prefs(c); val seen=JSONArray(p.getString("record_seen_v2","[]"))
-        val keys=(0 until seen.length()).map { seen.getString(it) }.toMutableList()
-        val queue=JSONObject(p.getString("record_queue_v2","{}")!!)
-        val fresh=key !in keys
-        if (!fresh && !(foreground && queue.optBoolean(key))) return@synchronized false
-        if (fresh) keys.add(key)
-        if (foreground) queue.remove(key) else queue.put(key,true)
-        while(keys.size>2000) queue.remove(keys.removeAt(0))
-        p.edit().putString("record_seen_v2",JSONArray(keys).toString()).putString("record_queue_v2",queue.toString()).commit()
-        Log.i("AttendanceRecords","course=$id reminder_claimed=true foreground=$foreground new=$fresh open=unknown")
-        true
+        val states=reminders(c)
+        val state=states.optJSONObject(key) ?: JSONObject().put("state","pending").put("discoveredAt",System.currentTimeMillis()).put("courseId",id)
+        states.put(key,state)
+        // Claim does not consume a reminder. Only the actual rendered dialog
+        // marks it shown, and only a user action marks it handled.
+        prefs(c).edit().putString("record_reminders_v3",states.toString()).commit()
+        val result=state.optString("state")!="handled" && (if(foreground) key !in presentedHere else state.optString("state")=="pending" && !state.optBoolean("notified"))
+        Log.i("AttendanceRecords","course=$id reminder=claim foreground=$foreground state=${state.optString("state")} eligible=$result open=unknown")
+        result
+    }
+    private fun updateReminder(c: Context,key: String,value: String) = synchronized(recordLock) {
+        val states=reminders(c)
+        val state=states.optJSONObject(key) ?: return@synchronized
+        if(value=="shown" && (!appForeground || state.optString("state")=="handled")) return@synchronized
+        state.put("state",value).put(if(value=="shown")"shownAt" else "handledAt",System.currentTimeMillis())
+        states.put(key,state); prefs(c).edit().putString("record_reminders_v3",states.toString()).commit()
+        if(value=="shown") presentedHere.add(key)
+        Log.i("AttendanceRecords","reminder=$value")
+    }
+    private fun deliverNotification(c: Context,key: String,name: String) {
+        synchronized(recordLock) {
+            val states=reminders(c)
+            val state=states.optJSONObject(key) ?: return
+            if(state.optString("state")!="pending" || state.optBoolean("notified")) return
+            if(notify(c,key,name)) {
+                state.put("notified",true); states.put(key,state)
+                prefs(c).edit().putString("record_reminders_v3",states.toString()).commit()
+            }
+        }
     }
     private fun enc(value: String) = URLEncoder.encode(value,"UTF-8")
     private fun jsonValue(value: Any?): Any? = when(value) {
@@ -429,49 +499,43 @@ object AttendanceSync {
     }
     fun background(c: Context, cancelled: () -> Boolean, monitor: Boolean = false, complete: () -> Unit) {
         val generation=revision.get()
-        work.execute {
+        if ((!monitor && AttendanceMonitorService.running) || appForeground || !prefs(c).getBoolean("enabled",false)) { main.post { complete() }; return }
+        val account=prefs(c).getString("account", "")
+        val courses=AttendanceMonitor.active(c).distinctBy { it.optString("courseId") }.filter {
+            val key="$account:${it.optString("courseId")}"
+            polling.due(key) && scheduledCourses.add(key)
+        }
+        val remaining=AtomicInteger(courses.size)
+        if(courses.isEmpty()) { main.post { complete() }; return }
+        for(w in courses) work.execute {
+            val key="$account:${w.optString("courseId")}";
             try {
-                val p=prefs(c)
-                if (!monitor && AttendanceMonitorService.running) return@execute
-                if (appForeground) { Log.i("AttendanceRecords","source=background skipped=foreground_owner"); return@execute }
-                if (!p.getBoolean("enabled",false) || (!monitor && System.currentTimeMillis()<p.getLong("next",0))) return@execute
-                val windows=JSONArray(p.getString("windows","[]")); val now=System.currentTimeMillis()
-                val courses=mutableSetOf<String>(); var hadFailure=false
-                for (i in 0 until windows.length()) {
-                    if (cancelled() || generation!=revision.get()) return@execute
-                    val w=windows.getJSONObject(i); val id=w.optString("courseId")
-                    if (now<w.optLong("start") || now>=w.optLong("end") || !courses.add(id)) continue
-                    try {
-                        val read=automaticInspect(c,id,generation,w.optString("name","课程"))
-                        if(read.optString("status")!="ok") { hadFailure=true;continue }
-                    } catch (e: Exception) {
-                        hadFailure=true
-                        failure(id,if(e is ReadFailure) e.reason else if(e is java.io.IOException) "network" else "format")
-                        continue
-                    }
-                    for (row in cachedRows(c,id)) {
-                        if (cancelled() || generation!=revision.get()) return@execute
-                        if (claim(c,id,row.getString("key"),false)) main.post {
-                            if (!cancelled() && generation==revision.get() && isCurrent(c,id,row)) notify(c,row.getString("key"),w.optString("name","课程"))
-                        }
+                if(cancelled() || generation!=revision.get() || appForeground) return@execute
+                val id=w.optString("courseId")
+                val read=readRecords(c,id,generation,false,if(monitor)"background_service" else "system_job")
+                if(read.optString("status")!="ok") return@execute
+                for(row in cachedRows(c,id)) {
+                    if(cancelled() || generation!=revision.get()) return@execute
+                    if(claim(c,id,row.getString("key"),false)) main.post {
+                        if(!cancelled() && generation==revision.get() && !appForeground && isCurrent(c,id,row)) deliverNotification(c,row.getString("key"),w.optString("name","课程"))
                     }
                 }
-                p.edit().putLong("next",if(hadFailure) System.currentTimeMillis()+5*60_000 else 0).apply()
                 main.post { channel?.invokeMethod("updated",null) }
-            } catch (e: Exception) {
-                val reason=if(e is ReadFailure) e.reason else if(e is java.io.IOException) "network" else "format"
-                Log.i("AttendanceRecords","source=background success=false reason=$reason")
-                if (!cancelled() && generation==revision.get()) prefs(c).edit().putLong("next",System.currentTimeMillis()+5*60_000).apply()
-            } finally { main.post { complete() } }
+            } catch(_: Exception) { Log.i("AttendanceRecords","source=background success=false reason=network") }
+            finally {
+                scheduledCourses.remove(key)
+                if(!monitor && remaining.decrementAndGet()==0) main.post { complete() }
+            }
         }
+        if(monitor) main.post { complete() }
     }
-    private fun notify(c: Context,key: String,name: String) {
+    private fun notify(c: Context,key: String,name: String): Boolean {
         val allowed=c.getSharedPreferences("canvas_announcement_sync",Context.MODE_PRIVATE).getBoolean("notificationsEnabled",false)
-        if (!allowed) { Log.i("AttendanceRecords","notification=false reason=app_setting");return }
+        if (!allowed) { Log.i("AttendanceRecords","notification=false reason=app_setting");return false }
         if (Build.VERSION.SDK_INT>=33 && c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) {
-            Log.i("AttendanceRecords","notification=false reason=permission");return }
+            Log.i("AttendanceRecords","notification=false reason=permission");return false }
         val nm=c.getSystemService(NotificationManager::class.java)
-        if (!nm.areNotificationsEnabled()) { Log.i("AttendanceRecords","notification=false reason=system_setting");return }
+        if (!nm.areNotificationsEnabled()) { Log.i("AttendanceRecords","notification=false reason=system_setting");return false }
         if (Build.VERSION.SDK_INT>=26) nm.createNotificationChannel(NotificationChannel("attendance_tasks","签到提示",NotificationManager.IMPORTANCE_DEFAULT))
         val intent=Intent(c,MainActivity::class.java).putExtra(EXTRA_PENDING,key)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -482,6 +546,7 @@ object AttendanceSync {
         val p=prefs(c);val ids=(p.getStringSet("notifications",emptySet()) ?: emptySet()).toMutableSet()
         ids.add(key.hashCode().toString());p.edit().putStringSet("notifications",ids).apply()
         Log.i("AttendanceRecords","notification=true source=student_records")
+        return true
     }
     private fun cancelNotifications(c: Context) {
         val p=prefs(c);val manager=c.getSystemService(NotificationManager::class.java)

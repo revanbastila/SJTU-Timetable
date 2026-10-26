@@ -68,6 +68,13 @@ class _AttendanceObserverState extends State<AttendanceObserver>
     if (_foreground) {
       _scheduleSignature = '';
       _schedule();
+      if (_dialogOpen && widget.app.attendance.pendingRecord != null) {
+        unawaited(
+          widget.app.attendance.recordDisplayed(
+            widget.app.attendance.pendingRecord!.key,
+          ),
+        );
+      }
       _changed();
     }
   }
@@ -83,6 +90,12 @@ class _AttendanceObserverState extends State<AttendanceObserver>
   }
 
   Future<void> _prompt() async {
+    if (!mounted ||
+        !_foreground ||
+        _dialogOpen ||
+        widget.app.attendance.phase != AttendancePhase.pending) {
+      return;
+    }
     final attendance = widget.app.attendance;
     if (attendance.recordMode) {
       final record = attendance.pendingRecord,
@@ -92,25 +105,40 @@ class _AttendanceObserverState extends State<AttendanceObserver>
       try {
         final open = await showDialog<bool>(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('发现课程签到'),
-            content: _RecordReminderBody(
-              app: widget.app,
-              recordKey: record.key,
-              name: meeting.course.name,
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('暂不执行'),
+          builder: (context) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted &&
+                  _foreground &&
+                  _dialogOpen &&
+                  attendance.pendingRecord?.key == record.key) {
+                unawaited(attendance.recordDisplayed(record.key));
+              }
+            });
+            return AlertDialog(
+              title: const Text('发现课程签到'),
+              content: _RecordReminderBody(
+                app: widget.app,
+                recordKey: record.key,
+                name: meeting.course.name,
               ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('执行签到'),
-              ),
-            ],
-          ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('暂不执行'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('执行签到'),
+                ),
+              ],
+            );
+          },
         );
+        if (!mounted ||
+            !_foreground ||
+            attendance.pendingRecord?.key != record.key) {
+          return;
+        }
         if (open != true) {
           attendance.dismissRecord();
           return;
@@ -135,6 +163,7 @@ class _AttendanceObserverState extends State<AttendanceObserver>
         }
       } finally {
         _dialogOpen = false;
+        if (mounted) _changed();
       }
       return;
     }
@@ -247,8 +276,9 @@ class _AttendanceConsentDialogState extends State<AttendanceConsentDialog> {
   @override
   Widget build(BuildContext context) {
     final a = widget.app.attendance;
-    final remaining =
-        a.pending?.expiresAt?.difference(DateTime.now()).inSeconds;
+    final remaining = a.pending?.expiresAt
+        ?.difference(DateTime.now())
+        .inSeconds;
     return AlertDialog(
       title: const Text('发现课程签到'),
       content: Text(
