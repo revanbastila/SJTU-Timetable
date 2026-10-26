@@ -2,42 +2,42 @@
   "schemaVersion": 1,
   "channel": "test-a",
   "packageName": "cn.sjtu.jiaotong_course.slimtest.a",
-  "versionName": "1.14.27.6",
-  "versionCode": 93,
-  "releaseTag": "v1.14.27.6-test",
-  "releaseName": "交大课表 1.14.27.6 · A 测试版",
-  "releasePageUrl": "https://github.com/revanbastila/SJTU-Timetable/releases/tag/v1.14.27.6-test",
-  "publishedAt": "2026-10-26T05:35:45Z",
-  "releaseNotes": "- 测试 A 现在从 GitHub 测试分支文件检查更新，启动与手动检查共用同一渠道。\n- 按 versionCode 识别新构建，自动选择设备架构，并校验大小、SHA-256、版本、包名和签名。\n- 设置页显示测试更新渠道，适配浅色、深色与主题切换。\n- 保留 1.14.27.4 自动签到修复；真实签到全链路仍待真机验收。",
-  "sourceCommit": "21a91609f6965db0a37206bc52b9f2c1f3c333f7",
+  "versionName": "1.14.27.7",
+  "versionCode": 94,
+  "releaseTag": "v1.14.27.7-test",
+  "releaseName": "交大课表 1.14.27.7 · A 测试版",
+  "releasePageUrl": "https://github.com/revanbastila/SJTU-Timetable/releases/tag/v1.14.27.7-test",
+  "publishedAt": "2026-10-26T09:25:32Z",
+  "releaseNotes": "- 签到二维码识别优先选择 PPT／电脑画面与单屏，适配桌面及手机播放器。\n- 核对切换结果后再识别；失败时继续当前直播，支持手动选择。\n- 提示位于视频外，切换、换流及尺寸变化后重新采样，减少遮挡和旧画面影响。\n- 真实课堂直播识别与签到提交全链路仍待真机验收。",
+  "sourceCommit": "80805fee4db5f6b95f563d06094c0bfa5f02e952",
   "assets": [
     {
       "abi": "arm64-v8a",
-      "name": "jiaotong_course-1.14.27.6-test-arm64-v8a.apk",
-      "size": 10269482,
-      "sha256": "5c610bfc0d1f66be91b5805fd665815ffe8be488fb43daab6e34b98c2d1c21d6",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.6-test/jiaotong_course-1.14.27.6-test-arm64-v8a.apk"
+      "name": "jiaotong_course-1.14.27.7-test-arm64-v8a.apk",
+      "size": 10269814,
+      "sha256": "b3d236e5ec9995a5051c8ab74264504495547a11634f8dc6bd045bca13f64292",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.7-test/jiaotong_course-1.14.27.7-test-arm64-v8a.apk"
     },
     {
       "abi": "armeabi-v7a",
-      "name": "jiaotong_course-1.14.27.6-test-armeabi-v7a.apk",
-      "size": 9808726,
-      "sha256": "36efbed1b9d8a427a1b2fb164e48e1c603c89b97457dc4ad10b1583ccb412325",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.6-test/jiaotong_course-1.14.27.6-test-armeabi-v7a.apk"
+      "name": "jiaotong_course-1.14.27.7-test-armeabi-v7a.apk",
+      "size": 9810202,
+      "sha256": "c7db1d2869f557c723c6654fd282c8c9c8a7f1727f8bbc271b658ddc1df1438c",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.7-test/jiaotong_course-1.14.27.7-test-armeabi-v7a.apk"
     },
     {
       "abi": "x86_64",
-      "name": "jiaotong_course-1.14.27.6-test-x86_64.apk",
-      "size": 10467666,
-      "sha256": "43530687a3d653cbe0ed263f0a3fd7f639e998c74336ea90357669ad8bca43d0",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.6-test/jiaotong_course-1.14.27.6-test-x86_64.apk"
+      "name": "jiaotong_course-1.14.27.7-test-x86_64.apk",
+      "size": 10473670,
+      "sha256": "a854f8fdf0893cc45657e837f8fed39d31168a4136a797c5d700b386f7da4366",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.7-test/jiaotong_course-1.14.27.7-test-x86_64.apk"
     },
     {
       "abi": "universal",
-      "name": "jiaotong_course-1.14.27.6-test-universal.apk",
-      "size": 26954592,
-      "sha256": "9b47930be841cabb945a42822ae68dcf54d1ebf1dc9733ebe6c053af5ab50e72",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.6-test/jiaotong_course-1.14.27.6-test-universal.apk"
+      "name": "jiaotong_course-1.14.27.7-test-universal.apk",
+      "size": 26962272,
+      "sha256": "21601fa41a2626e615495747d785c54367374fe579beda27a4ca68c88614e795",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.7-test/jiaotong_course-1.14.27.7-test-universal.apk"
     }
   ]
 }
