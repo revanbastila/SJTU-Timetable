@@ -76,11 +76,11 @@ void main() {
         supportedAbis: () async => ['arm64-v8a'],
         clientFactory: () => client);
     final info = await api.latest();
-    expect(
-        client.uri!.path, '/repos/campus/course/contents/updates/test-a.json');
-    expect(client.uri!.queryParameters, {'ref': 'test/1.14.26'});
-    expect(client.request.headers.values['Accept'],
-        'application/vnd.github.raw+json');
+    expect(client.uri!.host, 'raw.githubusercontent.com');
+    expect(client.uri!.path,
+        '/campus/course/refs/heads/test/1.14.26/updates/test-a.json');
+    expect(client.uri!.queryParameters['_'], matches(RegExp(r'^\d+$')));
+    expect(client.request.headers.values['Accept'], 'application/json');
     expect(client.request.headers.values['Cache-Control'], 'no-cache');
     expect(client.request.headers.values.containsKey('Authorization'), false);
     expect(client.request.followRedirects, false);
@@ -142,7 +142,8 @@ void main() {
               channel: UpdateChannel.testA,
               clientFactory: () => client).latest(),
           throwsA(isA<UpdateException>()));
-      expect(client.uri!.path, contains('/contents/updates/test-a.json'));
+      expect(client.uri!.path,
+          contains('/refs/heads/test/1.14.26/updates/test-a.json'));
       expect(client.closed, true);
     }
   });

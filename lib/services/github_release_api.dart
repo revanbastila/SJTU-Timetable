@@ -39,18 +39,15 @@ class GitHubReleaseApi implements ReleaseRepository {
       final testChannel = selectedChannel == UpdateChannel.testA;
       final uri = testChannel
           ? Uri.https(
-              'api.github.com',
-              '/repos/$owner/$repo/contents/${UpdateConfig.testManifestPath}',
-              {'ref': UpdateConfig.testBranch})
+              'raw.githubusercontent.com',
+              '/$owner/$repo/refs/heads/${UpdateConfig.testBranch}/${UpdateConfig.testManifestPath}',
+              {'_': DateTime.now().microsecondsSinceEpoch.toString()})
           : Uri.https('api.github.com', '/repos/$owner/$repo/releases/latest');
       final request =
           await client.getUrl(uri).timeout(const Duration(seconds: 12));
       request.followRedirects = false;
-      request.headers.set(
-          'Accept',
-          testChannel
-              ? 'application/vnd.github.raw+json'
-              : 'application/vnd.github+json');
+      request.headers.set('Accept',
+          testChannel ? 'application/json' : 'application/vnd.github+json');
       request.headers.set('Cache-Control', 'no-cache');
       request.headers.set('User-Agent', 'JiaotongCourse-Android');
       request.headers.set('X-GitHub-Api-Version', '2022-11-28');

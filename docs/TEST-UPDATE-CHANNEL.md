@@ -2,11 +2,11 @@
 
 测试 A 根据 Android 实际包名 `cn.sjtu.jiaotong_course.slimtest.a` 选择更新源。启动时与设置页手动检查共用读取器，读取仓库 `revanbastila/SJTU-Timetable` 的 `test/1.14.26` 分支文件 `updates/test-a.json`。正式包名继续查询正式 Latest；测试文件缺失、网络错误或内容无效时提示失败，不回退到正式包。
 
-更新请求使用 GitHub Contents API：
+更新请求直接读取 GitHub 测试分支原始文件，避免共享出口的匿名 REST API 额度耗尽导致 403。每次请求附加新的 `_` 参数并设置 `Cache-Control: no-cache`：
 
 ```text
-GET https://api.github.com/repos/revanbastila/SJTU-Timetable/contents/updates/test-a.json?ref=test%2F1.14.26
-Accept: application/vnd.github.raw+json
+GET https://raw.githubusercontent.com/revanbastila/SJTU-Timetable/refs/heads/test/1.14.26/updates/test-a.json?_=<本次请求时间>
+Accept: application/json
 Cache-Control: no-cache
 ```
 
@@ -21,7 +21,7 @@ Cache-Control: no-cache
 3. 公开预发布并确认下载附件可用。
 4. 最后更新 `updates/test-a.json` 并推送到测试分支，使客户端只看到已有可下载附件的版本。清单更新提交可以晚于源码标签提交。
 
-安装包中的更新地址固定指向测试分支，后续版本发布不需要修改客户端。1.14.27.4 及更早版本未实现此渠道，需要先手动覆盖安装 1.14.27.5；之后即可通过测试分支清单检查测试更新。
+安装包中的更新地址固定指向测试分支，后续版本发布不需要修改客户端。1.14.27.4 及更早版本未实现此渠道，需要先手动覆盖安装 1.14.27.6；之后即可通过测试分支清单检查测试更新。
 
 联网验收可单独运行：
 
@@ -30,3 +30,5 @@ flutter test --no-pub --dart-define=RUN_GITHUB_TEST_UPDATE_PROBE=true test/githu
 ```
 
 该验收直接运行生产读取器并访问真实公开清单，注入测试包名和 ABI，以模拟旧构建/当前构建验证版本判断；不等同于真机下载及覆盖安装验收。
+
+1.14.27.5 的早期读取器使用 Contents API；若该版遇到 API 额度错误，可直接手动覆盖安装 1.14.27.6。源码标签中的清单是发布前快照，当前测试分支在附件可下载后以独立提交激活新版本清单。
