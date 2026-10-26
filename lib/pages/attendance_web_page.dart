@@ -7,6 +7,8 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../models/attendance.dart';
 import '../services/school_web_auth.dart';
+import '../services/attendance_video_probe.dart';
+import '../widgets/attendance_video_status.dart';
 import '../state/app_controller.dart';
 import '../services/canvas_extractor.dart';
 import 'authenticated_web_page.dart';
@@ -46,7 +48,8 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
       _loginAttempts = 0,
       _canvasAttempts = 0,
       _frameFailures = 0;
-  double? _previousVideoTime;
+  final _videoSampling = AttendanceVideoSampling();
+  bool _manualView = false;
   final Set<String> _visitedFrames = {};
   bool _sawCourse = false, _connected = false;
   bool _canvasSessionAttempted = false;
@@ -167,6 +170,7 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
           onPageStarted: (_) {
             if (opening != _openGeneration) return;
             _generation++;
+            _videoSampling.reset();
             _connected = false;
           },
           onPageFinished: (_) {
@@ -296,11 +300,21 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
         return;
       }
       if (!_sawCourse || !widget.app.attendance.executing) return;
+      if (_manualView) await web.runJavaScript(attendanceUseCurrentView);
       final frame = _decode(
         await web.runJavaScriptReturningResult(attendanceVideoProbe),
       );
       if (!_active || epoch != _generation) return;
+      if (_manualView && frame['viewState'] != 'manual') {
+        await web.runJavaScript(attendanceUseCurrentView);
+        _videoSampling.reset();
+        return;
+      }
+      if (frame['message'] is String && frame['message'] != _message) {
+        setState(() => _message = frame['message']);
+      }
       if (frame['playing'] != true) {
+        _videoSampling.reset();
         final child = frame['frame'];
         if (child is String &&
             _visitedFrames.length < 3 &&
@@ -316,14 +330,7 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
         );
         return;
       }
-      final currentTime = (frame['time'] as num?)?.toDouble();
-      if (currentTime == null ||
-          _previousVideoTime == null ||
-          currentTime <= _previousVideoTime!) {
-        _previousVideoTime = currentTime;
-        return;
-      }
-      _previousVideoTime = currentTime;
+      if (!_videoSampling.accept(frame)) return;
       widget.app.attendance.scanning(operation: _operation);
       if (_webId == null) {
         _failure('当前设备不支持应用内视频识别');
@@ -419,7 +426,8 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
         _canvasAttempts = 0;
         _loginAttempts = 0;
         _frameFailures = 0;
-        _previousVideoTime = null;
+        _videoSampling.reset();
+        _manualView = false;
         _visitedFrames.clear();
         _sawCourse = false;
         _connected = false;
@@ -436,6 +444,15 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
     }
     await _stop();
     if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _useCurrentView() async {
+    _manualView = true;
+    _videoSampling.reset();
+    try {
+      await _web?.runJavaScript(attendanceUseCurrentView);
+    } catch (_) {}
+    if (mounted) setState(() => _message = '使用当前画面，可在播放器中手动切换');
   }
 
   @override
@@ -472,6 +489,12 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
             ),
             if (!_stopped && !_connected)
               const LinearProgressIndicator(minHeight: 2),
+            if (widget.execute && !_stopped)
+              AttendanceVideoStatus(
+                message: _message,
+                manual: _manualView,
+                onUseCurrentView: _useCurrentView,
+              ),
             Expanded(
               child: _web == null || _stopped
                   ? Center(
@@ -510,41 +533,3 @@ String attendanceEntryFailure(String status) => switch (status) {
       'no_entry' => '当前课程确实未提供所需入口',
       _ => '课程入口暂不可用，请重试当前课程',
     };
-
-/// Reads the actual displayed player. It never selects a replay, pauses the
-/// video to retain an old QR, or assumes a Canvas tool/player URL.
-const attendanceVideoProbe = r'''
-(() => {
-  const visible = n => n && n.getBoundingClientRect().width > 32 && n.getBoundingClientRect().height > 32;
-  const videos = [...document.querySelectorAll('video')].filter(visible);
-  const video = videos.find(v => !v.paused && v.readyState >= 2 && v.videoWidth > 0 && v.videoHeight > 0);
-  if (video) {
-    const r=video.getBoundingClientRect();
-    const left=Math.max(0,r.left), top=Math.max(0,r.top);
-    const right=Math.min(innerWidth,r.right), bottom=Math.min(innerHeight,r.bottom);
-    return JSON.stringify({playing:true,time:video.currentTime,x:left/innerWidth,y:top/innerHeight,
-      width:(right-left)/innerWidth,height:(bottom-top)/innerHeight});
-  }
-  const live = [...document.querySelectorAll('a,button,[role=tab],[role=button]')]
-    .find(n => visible(n) && (n.innerText || '').replace(/\s+/g,'') === '直播');
-  if (live && !window.__attendanceLiveTabSelected) {
-    window.__attendanceLiveTabSelected=true; live.click();
-    return JSON.stringify({playing:false,message:'正在进入直播'});
-  }
-  const ongoing=[...document.querySelectorAll('a,button,[role=button]')].filter(n => {
-    const text=(n.innerText || '').trim();
-    return visible(n) && /直播中/.test(text) && !/回放|历史|未开始|已结束/.test(text);
-  });
-  if (ongoing.length === 1 && !window.__attendanceLiveSelected) {
-    window.__attendanceLiveSelected=true; ongoing[0].click();
-    return JSON.stringify({playing:false,message:'正在播放当前直播'});
-  }
-  if (videos.length === 1 && !window.__attendancePlayTried) {
-    window.__attendancePlayTried=true; videos[0].play().catch(()=>{});
-  }
-  const frames=[...document.querySelectorAll('iframe')].filter(visible)
-    .map(n=>n.src).filter(u=>/^https:\/\//.test(u));
-  return JSON.stringify({playing:false,frame:frames.length===1 ? frames[0] : null,
-    message:ongoing.length > 1 ? '存在多个直播，请在页面中选择当前课程' : '等待直播开始或点击播放'});
-})()
-''';

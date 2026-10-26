@@ -14,12 +14,12 @@ void main() {
         supportedAbis: () async => ['arm64-v8a', 'armeabi-v7a']).latest();
     expect(info.channel, 'test-a');
     expect(info.packageName, UpdateConfig.testPackage);
-    expect(info.versionCode, greaterThanOrEqualTo(92));
+    expect(info.versionCode, greaterThanOrEqualTo(93));
     expect(info.apkName, endsWith('test-arm64-v8a.apk'));
     expect(info.apkSize, greaterThan(0));
     expect(info.apkDigest, matches(RegExp(r'^sha256:[0-9a-f]{64}$')));
     expect(
-        info.isNewerThan(const AppVersion('1.14.27.4', 91,
+        info.isNewerThan(const AppVersion('1.14.27.6', 93,
             packageName: UpdateConfig.testPackage)),
         true);
     expect(
