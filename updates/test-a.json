@@ -2,42 +2,42 @@
   "schemaVersion": 1,
   "channel": "test-a",
   "packageName": "cn.sjtu.jiaotong_course.slimtest.a",
-  "versionName": "1.14.27.5",
-  "versionCode": 92,
-  "releaseTag": "v1.14.27.5-test",
-  "releaseName": "交大课表 1.14.27.5 · A 测试版",
-  "releasePageUrl": "https://github.com/revanbastila/SJTU-Timetable/releases/tag/v1.14.27.5-test",
-  "publishedAt": "2026-10-26T05:19:58Z",
+  "versionName": "1.14.27.6",
+  "versionCode": 93,
+  "releaseTag": "v1.14.27.6-test",
+  "releaseName": "交大课表 1.14.27.6 · A 测试版",
+  "releasePageUrl": "https://github.com/revanbastila/SJTU-Timetable/releases/tag/v1.14.27.6-test",
+  "publishedAt": "2026-10-26T05:35:45Z",
   "releaseNotes": "- 测试 A 现在从 GitHub 测试分支文件检查更新，启动与手动检查共用同一渠道。\n- 按 versionCode 识别新构建，自动选择设备架构，并校验大小、SHA-256、版本、包名和签名。\n- 设置页显示测试更新渠道，适配浅色、深色与主题切换。\n- 保留 1.14.27.4 自动签到修复；真实签到全链路仍待真机验收。",
-  "sourceCommit": "6e32757d01ab5a7f41eac17398642407cf030208",
+  "sourceCommit": "21a91609f6965db0a37206bc52b9f2c1f3c333f7",
   "assets": [
     {
       "abi": "arm64-v8a",
-      "name": "jiaotong_course-1.14.27.5-test-arm64-v8a.apk",
-      "size": 10269182,
-      "sha256": "87f4409d0cc5eba76093c8747e61bdeb1ba2621c871e05e97bf3b34a6ca4a11a",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.5-test/jiaotong_course-1.14.27.5-test-arm64-v8a.apk"
+      "name": "jiaotong_course-1.14.27.6-test-arm64-v8a.apk",
+      "size": 10269482,
+      "sha256": "5c610bfc0d1f66be91b5805fd665815ffe8be488fb43daab6e34b98c2d1c21d6",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.6-test/jiaotong_course-1.14.27.6-test-arm64-v8a.apk"
     },
     {
       "abi": "armeabi-v7a",
-      "name": "jiaotong_course-1.14.27.5-test-armeabi-v7a.apk",
-      "size": 9808670,
-      "sha256": "210b112507a277d860bfb11bb1fca408606a2ee617ecd2d64450d0aa470ea22f",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.5-test/jiaotong_course-1.14.27.5-test-armeabi-v7a.apk"
+      "name": "jiaotong_course-1.14.27.6-test-armeabi-v7a.apk",
+      "size": 9808726,
+      "sha256": "36efbed1b9d8a427a1b2fb164e48e1c603c89b97457dc4ad10b1583ccb412325",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.6-test/jiaotong_course-1.14.27.6-test-armeabi-v7a.apk"
     },
     {
       "abi": "x86_64",
-      "name": "jiaotong_course-1.14.27.5-test-x86_64.apk",
-      "size": 10467198,
-      "sha256": "75be936a19744fb8323b20f0dd598a22fcd4302f33449ae1d8001c196e3e7d5c",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.5-test/jiaotong_course-1.14.27.5-test-x86_64.apk"
+      "name": "jiaotong_course-1.14.27.6-test-x86_64.apk",
+      "size": 10467666,
+      "sha256": "43530687a3d653cbe0ed263f0a3fd7f639e998c74336ea90357669ad8bca43d0",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.6-test/jiaotong_course-1.14.27.6-test-x86_64.apk"
     },
     {
       "abi": "universal",
-      "name": "jiaotong_course-1.14.27.5-test-universal.apk",
-      "size": 26953768,
-      "sha256": "d8628f9eb7819409d229e1c1ce0453c1b8e7f16b44b67287da6c694b8d991d73",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.5-test/jiaotong_course-1.14.27.5-test-universal.apk"
+      "name": "jiaotong_course-1.14.27.6-test-universal.apk",
+      "size": 26954592,
+      "sha256": "9b47930be841cabb945a42822ae68dcf54d1ebf1dc9733ebe6c053af5ab50e72",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.6-test/jiaotong_course-1.14.27.6-test-universal.apk"
     }
   ]
 }
