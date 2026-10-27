@@ -7,6 +7,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
+import android.view.View
+import android.view.ViewGroup
+import io.flutter.embedding.android.FlutterSurfaceView
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -27,6 +30,13 @@ class AttendanceFrameCapture(private val activity: MainActivity, private val eng
     private val main = Handler(Looper.getMainLooper())
     private var busy = false
     private var closed = false
+    private fun renderingSurface(view: View): FlutterSurfaceView? {
+        if (view is FlutterSurfaceView) return view
+        if (view is ViewGroup) for (i in 0 until view.childCount) {
+            renderingSurface(view.getChildAt(i))?.let { return it }
+        }
+        return null
+    }
     private val scripts = mutableMapOf<Long,ScriptHandler>()
     fun cancel() { generation.incrementAndGet() }
     fun dispose() { closed = true; cancel(); scripts.values.forEach { it.remove() }; scripts.clear(); worker.shutdown() }
@@ -86,22 +96,37 @@ class AttendanceFrameCapture(private val activity: MainActivity, private val eng
         if (listOf(x,y,w,h).any { !it.isFinite() } || x < 0 || y < 0 || w <= 0 || h <= 0 || x+w > 1.001 || y+h > 1.001) {
             result.error("video_bounds","无法确认直播画面范围",null); return
         }
-        val location = IntArray(2); web.getLocationInWindow(location)
-        val rect = Rect(location[0]+(x*web.width).toInt(),location[1]+(y*web.height).toInt(),
-            location[0]+((x+w)*web.width).toInt(),location[1]+((y+h)*web.height).toInt())
         val decor = activity.window.decorView
-        val clipped = rect.intersect(0,0,decor.width,decor.height)
+        val useFlutter = call.hasArgument("flutterX")
+        val surface = if (useFlutter) renderingSurface(decor) else null
+        val rect: Rect
+        if (useFlutter) {
+            val fx=number("flutterX");val fy=number("flutterY")
+            val fw=number("flutterWidth");val fh=number("flutterHeight")
+            if (surface==null || !surface.holder.surface.isValid ||
+                listOf(fx,fy,fw,fh).any { !it.isFinite() } || fx<0 || fy<0 ||
+                fw<=0 || fh<=0 || fx+fw>1.001 || fy+fh>1.001) {
+                result.error("video_bounds","直播渲染表面或截图范围尚未就绪",null);return
+            }
+            rect=Rect((fx*surface.width).toInt(),(fy*surface.height).toInt(),
+                ((fx+fw)*surface.width).toInt(),((fy+fh)*surface.height).toInt())
+        } else {
+            val location=IntArray(2);web.getLocationInWindow(location)
+            rect=Rect(location[0]+(x*web.width).toInt(),location[1]+(y*web.height).toInt(),
+                location[0]+((x+w)*web.width).toInt(),location[1]+((y+h)*web.height).toInt())
+        }
+        val clipped = rect.intersect(0,0,surface?.width?:decor.width,surface?.height?:decor.height)
         if (!clipped || rect.width() < 32 || rect.height() < 32) { result.success(null); return }
         val scale = minOf(1.0,1280.0/rect.width())
         val bitmap = Bitmap.createBitmap((rect.width()*scale).toInt(),(rect.height()*scale).toInt(),Bitmap.Config.ARGB_8888)
         val epoch = generation.get(); busy = true
         try {
-            PixelCopy.request(activity.window,rect,bitmap,{ status ->
+            val listener=PixelCopy.OnPixelCopyFinishedListener { status ->
                 if (closed || generation.get() != epoch || status != PixelCopy.SUCCESS) {
                     bitmap.recycle(); busy=false
                     if (status != PixelCopy.SUCCESS) result.error("capture_failed","无法取得直播画面，播放器可能受保护",null)
                     else result.success(null)
-                    return@request
+                    return@OnPixelCopyFinishedListener
                 }
                 try { worker.execute {
                     var qr: String? = null
@@ -134,7 +159,11 @@ class AttendanceFrameCapture(private val activity: MainActivity, private val eng
                 } } catch (_: java.util.concurrent.RejectedExecutionException) {
                     bitmap.recycle(); busy=false; result.success(null)
                 }
-            },main)
+            }
+            // Flutter's SurfaceView is composed separately from the decor
+            // window. Copying the decor alone returned black frames on device.
+            if (surface!=null) PixelCopy.request(surface,rect,bitmap,listener,main)
+            else PixelCopy.request(activity.window,rect,bitmap,listener,main)
         } catch (_: Exception) {
             bitmap.recycle(); busy=false
             result.error("capture_failed","无法取得直播画面",null)

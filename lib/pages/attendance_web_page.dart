@@ -8,6 +8,7 @@ import 'package:webview_flutter_android/webview_flutter_android.dart';
 import '../models/attendance.dart';
 import '../services/school_web_auth.dart';
 import '../services/attendance_video_probe.dart';
+import '../services/attendance_capture_geometry.dart';
 import '../widgets/attendance_video_status.dart';
 import '../state/app_controller.dart';
 import '../services/canvas_extractor.dart';
@@ -49,6 +50,7 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
       _canvasAttempts = 0,
       _frameFailures = 0;
   final _videoSampling = AttendanceVideoSampling();
+  final _captureViewKey = GlobalKey();
   bool _manualView = false;
   final Set<String> _visitedFrames = {};
   bool _sawCourse = false, _connected = false;
@@ -338,7 +340,20 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
       }
       _captureBusy = true;
       try {
+        if (!mounted) return;
+        final box = _captureViewKey.currentContext?.findRenderObject();
+        if (box is! RenderBox || !box.hasSize) {
+          _videoSampling.reset();
+          return;
+        }
+        final flutterView = View.of(context);
         final qr = await widget.app.attendanceBackend.captureQr(_webId!, {
+          ...attendanceFlutterCaptureBounds(
+            webView: box.localToGlobal(Offset.zero) & box.size,
+            flutterView:
+                flutterView.physicalSize / flutterView.devicePixelRatio,
+            frame: frame,
+          ),
           for (final key in ['x', 'y', 'width', 'height']) key: frame[key],
         });
         if (_active && epoch == _generation && qr != null) {
@@ -516,7 +531,10 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
                         ),
                       ),
                     )
-                  : WebViewWidget(controller: _web!),
+                  : SizedBox.expand(
+                      key: _captureViewKey,
+                      child: WebViewWidget(controller: _web!),
+                    ),
             ),
           ],
         ),
