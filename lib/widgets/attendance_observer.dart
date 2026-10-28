@@ -114,23 +114,13 @@ class _AttendanceObserverState extends State<AttendanceObserver>
                 unawaited(attendance.recordDisplayed(record.key));
               }
             });
-            return AlertDialog(
-              title: const Text('发现课程签到'),
-              content: _RecordReminderBody(
+            return AttendanceRecordConsentDialog(
+              name: meeting.course.name,
+              body: _RecordReminderBody(
                 app: widget.app,
                 recordKey: record.key,
                 name: meeting.course.name,
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('暂不执行'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('执行签到'),
-                ),
-              ],
             );
           },
         );
@@ -276,9 +266,8 @@ class _AttendanceConsentDialogState extends State<AttendanceConsentDialog> {
   @override
   Widget build(BuildContext context) {
     final a = widget.app.attendance;
-    final remaining = a.pending?.expiresAt
-        ?.difference(DateTime.now())
-        .inSeconds;
+    final remaining =
+        a.pending?.expiresAt?.difference(DateTime.now()).inSeconds;
     return AlertDialog(
       title: const Text('发现课程签到'),
       content: Text(
@@ -337,5 +326,28 @@ class _RecordReminderBodyState extends State<_RecordReminderBody> {
 
   @override
   Widget build(BuildContext context) =>
-      Text('${widget.name}\n本人尚未签到，开放状态未确认。执行后打开当前课程直播，识别二维码；确认任务关联后提交。');
+      Text(attendanceRecordConsentText(widget.name));
+}
+
+String attendanceRecordConsentText(String name) =>
+    '$name\n本人尚未签到，接口未提供开放状态。执行后进入当前课程直播；未开播时等待，可手动刷新或取消。识别二维码并核对课程与任务后提交。';
+
+class AttendanceRecordConsentDialog extends StatelessWidget {
+  const AttendanceRecordConsentDialog(
+      {super.key, required this.name, this.body});
+  final String name;
+  final Widget? body;
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('发现课程签到'),
+        content: body ?? Text(attendanceRecordConsentText(name)),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('暂不执行')),
+          FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('执行签到')),
+        ],
+      );
 }

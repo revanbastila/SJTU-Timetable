@@ -37,7 +37,8 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
     with WidgetsBindingObserver {
   WebViewController? _web;
   SchoolWebAuthenticator? _auth;
-  Timer? _sampling, _limit;
+  Timer? _sampling, _limit, _windowLimit;
+  bool _waitingLive = false;
   String _message = '正在读取课程入口…';
   AttendanceRecord? _executionRecord;
   int? _operation;
@@ -67,7 +68,21 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
     widget.app.attendance.addListener(_stateChanged);
     _executionRecord = widget.app.attendance.pendingRecord;
     _operation = widget.app.attendance.operation;
+    _armWindowLimit();
     unawaited(_open());
+  }
+
+  void _armWindowLimit() {
+    _windowLimit?.cancel();
+    if (!widget.execute) return;
+    final remaining =
+        widget.meeting.detectionEnd.difference(widget.app.attendance.clock());
+    _windowLimit =
+        Timer(remaining > Duration.zero ? remaining : Duration.zero, () {
+      if (_active && widget.app.attendance.ownsOperation(_operation)) {
+        unawaited(widget.app.attendance.cancel(AttendancePhase.expired));
+      }
+    });
   }
 
   void _stateChanged() {
@@ -99,10 +114,12 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
   Future<void> _open({bool refresh = false}) async {
     final opening = ++_openGeneration;
     try {
-      final tabs = await widget.app.attendanceBackend.tabs(
-        widget.meeting.canvasId,
-        refresh: refresh,
-      );
+      final tabs = await widget.app.attendanceBackend
+          .tabs(
+            widget.meeting.canvasId,
+            refresh: refresh,
+          )
+          .timeout(const Duration(seconds: 30));
       if (!_active || opening != _openGeneration) return;
       if (['login', 'canvas_login'].contains(tabs['status'])) {
         if (_canvasSessionAttempted) {
@@ -174,6 +191,8 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
             _generation++;
             _videoSampling.reset();
             _connected = false;
+            _waitingLive = false;
+            _armLoadLimit();
           },
           onPageFinished: (_) {
             if (opening == _openGeneration) unawaited(_inspect());
@@ -192,9 +211,7 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
       if (!_active) return;
       setState(() => _message = widget.execute ? '正在进入课堂视频新版…' : '正在连接点名签到…');
       await web.loadRequest(uri);
-      _limit = Timer(const Duration(minutes: 2), () {
-        _failure(widget.execute ? '本次未能完成直播识别，请检查直播是否已开始' : '连接超时，请完成登录后重试');
-      });
+      _armLoadLimit();
       _sampling = Timer.periodic(const Duration(seconds: 1), (_) {
         if (_active && !_captureBusy) unawaited(_inspect());
       });
@@ -203,6 +220,13 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
         _failure('课程入口请求失败或超时，请检查网络后重试');
       }
     }
+  }
+
+  void _armLoadLimit() {
+    _limit?.cancel();
+    _limit = Timer(const Duration(minutes: 2), () {
+      _failure(widget.execute ? '直播页面加载超时，请检查网络或完成登录后重试' : '连接超时，请完成登录后重试');
+    });
   }
 
   Map<String, dynamic> _decode(Object raw) {
@@ -302,11 +326,25 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
         return;
       }
       if (!_sawCourse || !widget.app.attendance.executing) return;
+      if (!widget.meeting.contains(widget.app.attendance.clock())) {
+        await widget.app.attendance.cancel(AttendancePhase.expired);
+        return;
+      }
       if (_manualView) await web.runJavaScript(attendanceUseCurrentView);
       final frame = _decode(
         await web.runJavaScriptReturningResult(attendanceVideoProbe),
       );
       if (!_active || epoch != _generation) return;
+      final waiting = frame['liveState'] == 'notStarted';
+      if (waiting || frame['playing'] == true) _limit?.cancel();
+      if (waiting != _waitingLive) {
+        _waitingLive = waiting;
+        _videoSampling.reset();
+      }
+      if (waiting) {
+        widget.app.attendance.report(AttendancePhase.waitingLive, '直播尚未开始，正在等待',
+            operation: _operation);
+      }
       if (_manualView && frame['viewState'] != 'manual') {
         await web.runJavaScript(attendanceUseCurrentView);
         _videoSampling.reset();
@@ -392,6 +430,7 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
     _generation++;
     _sampling?.cancel();
     _limit?.cancel();
+    _windowLimit?.cancel();
     final web = _web;
     final id = _webId;
     _web = null;
@@ -446,7 +485,9 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
         _visitedFrames.clear();
         _sawCourse = false;
         _connected = false;
+        _waitingLive = false;
       });
+      _armWindowLimit();
       await _open(refresh: true);
     } finally {
       if (mounted) setState(() => _retrying = false);
@@ -459,6 +500,29 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
     }
     await _stop();
     if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _refreshLive() async {
+    if (!_active ||
+        _web == null ||
+        !widget.execute ||
+        !widget.app.attendance.ownsOperation(_operation)) {
+      return;
+    }
+    // An explicit user refresh can reload the final player. Do not replay
+    // Canvas/LTI/login POST navigation automatically.
+    final uri = Uri.tryParse(await _web!.currentUrl() ?? '');
+    if (!_active || uri == null) return;
+    if (uri.scheme != 'https' ||
+        uri.host == 'oc.sjtu.edu.cn' ||
+        uri.host == 'jaccount.sjtu.edu.cn') {
+      if (mounted) setState(() => _message = '请先在页面中完成课程跳转或登录');
+      return;
+    }
+    _videoSampling.reset();
+    _waitingLive = false;
+    _visitedFrames.clear();
+    await _web!.reload();
   }
 
   Future<void> _useCurrentView() async {
@@ -489,7 +553,11 @@ class _AttendanceWebPageState extends State<AttendanceWebPage>
             onPressed: _cancel,
             icon: const Icon(Icons.arrow_back),
           ),
-          actions: [TextButton(onPressed: _cancel, child: const Text('取消'))],
+          actions: [
+            if (widget.execute && !_stopped)
+              TextButton(onPressed: _refreshLive, child: const Text('刷新直播')),
+            TextButton(onPressed: _cancel, child: const Text('取消')),
+          ],
         ),
         body: Column(
           children: [

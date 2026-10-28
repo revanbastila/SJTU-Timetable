@@ -144,4 +144,29 @@ test('LTI POST retains signed fields and changes only the form target',()=>{
  vm.runInNewContext(lti,context);const f=new Form();Object.assign(f,{target:'tool_content',action:'https://mlearning.sjtu.edu.cn/lti/launch',querySelector:()=>({}),signedData:'fixture'});
  f.submit();assert.equal(f.target,'_self');assert.equal(f.signedData,'fixture');assert(f.submitted);
 });
+test('not-started player waits past two minutes then discovers late PPT controls',()=>{
+ const f=fixture(),module=f.d.getElementById('playerModule');module.remove();
+ f.d.body.innerHTML='<div class="no-permission">直播未开始</div>';
+ assert.equal(f.run().liveState,'notStarted');f.advance(181000);
+ assert.equal(f.run().liveState,'notStarted');assert.equal(f.hits.swap,0);
+ f.d.body.replaceChildren(module);f.finish();
+ const r=f.run();assert(r.playing);assert.equal(r.viewState,'ready');
+ assert.equal(f.hits.swap,1);assert.equal(f.hits.single,1);
+});
+test('late video after generic empty state restarts discovery budget',()=>{
+ const f=fixture(),module=f.d.getElementById('playerModule');module.remove();
+ f.finish();f.advance(180000);f.d.body.append(module);f.finish();
+ assert.equal(f.run().viewState,'ready');assert.equal(f.hits.swap,1);
+});
+test('manual override while waiting survives delayed live startup',()=>{
+ const f=fixture(),module=f.d.getElementById('playerModule');module.remove();
+ f.d.body.innerHTML='<div class="no-permission">直播未开始</div>';
+ f.run();f.manual();f.advance(181000);f.d.body.replaceChildren(module);f.finish();
+ assert.equal(f.run().viewState,'manual');assert.equal(f.hits.swap,0);assert.equal(f.hits.single,0);
+});
+test('course-list not-started labels never suppress a playing live',()=>{
+ const f=fixture({selectedPpt:true,single:true});
+ f.d.body.insertAdjacentHTML('beforeend','<button>另一节课直播未开始</button>');f.finish();
+ assert(f.run().playing);assert.notEqual(f.run().liveState,'notStarted');
+});
 console.log(count+' attendance JavaScript checks passed.');

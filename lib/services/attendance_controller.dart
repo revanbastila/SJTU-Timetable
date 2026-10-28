@@ -148,15 +148,131 @@ class AttendanceController extends ChangeNotifier {
     if (!recordMode || _disposed) return;
     final generation = _epoch;
     _queryState(AttendancePhase.checking);
-    final snapshot = await _readRecords(meeting, manual: true);
+    AttendanceSnapshot snapshot;
+    try {
+      snapshot = await _readRecords(meeting, manual: true);
+    } catch (_) {
+      snapshot = AttendanceSnapshot(
+        canvasId: meeting.canvasId,
+        checkedAt: clock(),
+        records: [],
+        failure: 'network',
+      );
+    }
     if (_disposed || generation != _epoch) return;
     _storeSnapshot(snapshot);
+    await _reconcileRecord(snapshot);
     if (snapshot.nextCheckDelay != null) {
       _recordDue[meeting.canvasId] = clock().add(snapshot.nextCheckDelay!);
       _scheduleWake();
     }
-    _queryState(snapshot.phase, snapshot.summary);
+    _queryState(
+      snapshot.successful &&
+              snapshot.latest?.unsigned == true &&
+              !meeting.contains(clock())
+          ? AttendancePhase.waiting
+          : snapshot.phase,
+      snapshot.successful ? recordStatus(meeting) : snapshot.summary,
+    );
+    final active = currentMeetingFor(meeting.canvasId);
+    if (active != null) await _promoteRecords(snapshot, active, generation);
     notifyListeners();
+  }
+
+  Future<void> _reconcileRecord(AttendanceSnapshot snapshot) async {
+    final record = pendingRecord;
+    if (record != null &&
+        record.canvasId == snapshot.canvasId &&
+        snapshot.successful &&
+        !snapshot.records.any((r) => r.key == record.key && r.unsigned)) {
+      if (executing) {
+        await cancel(AttendancePhase.completed);
+      } else {
+        dismissRecord();
+      }
+    }
+  }
+
+  Future<void> _promoteRecords(AttendanceSnapshot snapshot,
+      AttendanceMeeting meeting, int generation) async {
+    if (!valid(generation) ||
+        !snapshot.successful ||
+        snapshot.canvasId != meeting.canvasId ||
+        !meeting.contains(clock()) ||
+        pendingRecord != null ||
+        pending != null ||
+        executing) {
+      return;
+    }
+    for (final row in snapshot.records) {
+      if (!row.relevant(meeting, clock()) ||
+          _displayedRecords.contains(row.key)) {
+        continue;
+      }
+      bool claimed;
+      try {
+        claimed = await (backend as AttendanceRecordBackend)
+            .claimRecord(row, meeting, foreground: foreground);
+      } catch (_) {
+        _queryState(AttendancePhase.limited, '签到提醒暂不可用，请重新检测或手动执行签到');
+        return;
+      }
+      if (!valid(generation) ||
+          pendingRecord != null ||
+          pending != null ||
+          executing) {
+        return;
+      }
+      if (!claimed || !row.relevant(meeting, clock())) continue;
+      pendingRecord = row;
+      recordMeeting = meeting;
+      _set(AttendancePhase.pending, '本人尚未签到，开放状态未确认；可执行签到，进入直播后核对课程与任务');
+      if (!foreground) {
+        await (backend as AttendanceRecordBackend).notifyRecord(row, meeting);
+      }
+      return;
+    }
+  }
+
+  AttendanceMeeting? currentMeetingFor(String canvasId) {
+    for (final meeting in _meetings) {
+      if (meeting.canvasId == canvasId && meeting.contains(clock())) {
+        return meeting;
+      }
+    }
+    return null;
+  }
+
+  AttendanceRecord? executableRecord(AttendanceMeeting meeting) {
+    if (!enabled ||
+        executing ||
+        !meeting.contains(clock()) ||
+        recordFailures.containsKey(meeting.canvasId)) {
+      return null;
+    }
+    final snapshot = recordSnapshots[meeting.canvasId];
+    if (snapshot == null || !snapshot.successful) return null;
+    for (final row in snapshot.records) {
+      if (row.relevant(meeting, clock())) return row;
+    }
+    return null;
+  }
+
+  String recordStatus(AttendanceMeeting meeting) {
+    final snapshot = recordSnapshots[meeting.canvasId];
+    if (snapshot == null) return '';
+    final row = snapshot.latest;
+    if (!snapshot.successful || row == null || !row.unsigned) {
+      return snapshot.summary;
+    }
+    if (clock().isBefore(meeting.detectionStart)) {
+      return '${snapshot.summary}\n尚未到课程检测时间，课前 5 分钟开始检查';
+    }
+    if (!meeting.contains(clock())) return '${snapshot.summary}\n已不在本节课程检测窗口';
+    if (!row.relevant(meeting, clock())) {
+      return '${snapshot.summary}\n该记录不在本节课程的记录时间范围';
+    }
+    return '${snapshot.summary}\n可执行签到，进入直播后等待或识别二维码';
   }
 
   void dismissRecord() {
@@ -186,26 +302,8 @@ class AttendanceController extends ChangeNotifier {
         final due = _recordDue[meeting.canvasId];
         if (due != null && clock().isBefore(due)) {
           final previous = recordSnapshots[meeting.canvasId];
-          if (previous != null &&
-              previous.successful &&
-              pendingRecord == null &&
-              !executing) {
-            for (final row in previous.records) {
-              if (!row.relevant(meeting, clock()) ||
-                  _displayedRecords.contains(row.key)) {
-                continue;
-              }
-              if (await (backend as AttendanceRecordBackend)
-                  .claimRecord(row, meeting, foreground: foreground)) {
-                if (!valid(generation) || pendingRecord != null || executing) {
-                  return;
-                }
-                pendingRecord = row;
-                recordMeeting = meeting;
-                _set(AttendancePhase.pending, '本人尚未签到，开放状态未确认，请进入页面核实');
-                break;
-              }
-            }
+          if (previous != null) {
+            await _promoteRecords(previous, meeting, generation);
           }
           return;
         }
@@ -249,47 +347,13 @@ class AttendanceController extends ChangeNotifier {
                 clock().add(snapshot.nextCheckDelay!);
           }
           _storeSnapshot(snapshot);
-          if (pendingRecord?.canvasId == meeting.canvasId &&
-              snapshot.successful &&
-              !snapshot.records.any(
-                (r) => r.key == pendingRecord!.key && r.unsigned,
-              )) {
-            // A completed own record may stop execution; a read failure may not.
-            if (executing) {
-              await cancel(AttendancePhase.completed);
-            } else {
-              dismissRecord();
-            }
-          }
+          // A completed own record may stop execution; a read failure may not.
+          await _reconcileRecord(snapshot);
           _queryState(snapshot.phase, snapshot.summary);
           if (!snapshot.successful || !meeting.contains(clock()) || executing) {
             return;
           }
-          for (final row in snapshot.records) {
-            if (pendingRecord != null ||
-                !row.relevant(meeting, clock()) ||
-                _displayedRecords.contains(row.key)) {
-              continue;
-            }
-            final claimed = await (backend as AttendanceRecordBackend)
-                .claimRecord(row, meeting, foreground: foreground);
-            if (!valid(generation)) return;
-            if (!claimed ||
-                !row.relevant(meeting, clock()) ||
-                pendingRecord != null ||
-                executing) {
-              continue;
-            }
-            pendingRecord = row;
-            recordMeeting = meeting;
-            _set(AttendancePhase.pending, '本人尚未签到，开放状态未确认，请进入页面核实');
-            if (!foreground) {
-              await (backend as AttendanceRecordBackend).notifyRecord(
-                row,
-                meeting,
-              );
-            }
-          }
+          await _promoteRecords(snapshot, meeting, generation);
           if (!_disposed) notifyListeners();
         } finally {
           if (identical(_checkingRecords[meeting.canvasId], token)) {
@@ -574,7 +638,15 @@ class AttendanceController extends ChangeNotifier {
       final operation = ++_operation;
       _activeOperation = operation;
       _set(AttendancePhase.openingLive, '正在重新确认本人签到记录…');
-      final latest = await _readRecords(meeting, manual: true);
+      AttendanceSnapshot latest;
+      try {
+        latest = await _readRecords(meeting, manual: true);
+      } catch (_) {
+        if (valid(generation) && ownsOperation(operation)) {
+          await _finish(AttendancePhase.failed, '重新确认签到记录失败，请检查网络后重试');
+        }
+        return false;
+      }
       if (!valid(generation) ||
           !ownsOperation(operation) ||
           pendingRecord?.key != record.key) {
@@ -625,6 +697,7 @@ class AttendanceController extends ChangeNotifier {
     }
     pendingRecord = record;
     recordMeeting = meeting;
+    await recordDisplayed(record.key);
     return authorizeExecution();
   }
 

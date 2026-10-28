@@ -553,7 +553,7 @@ class SettingsPageState extends State<SettingsPage> {
                       title: Text(app.attendance.phase.label),
                       subtitle: Text(
                         app.attendance.detail.isEmpty
-                            ? '课前后各 10 分钟内检查；点此连接课程及查看运行状态'
+                            ? '课前后各 5 分钟内检查；点此连接课程及查看运行状态'
                             : app.attendance.detail,
                       ),
                       trailing: const Icon(Icons.chevron_right),

@@ -14,7 +14,7 @@ void main() {
         supportedAbis: () async => ['arm64-v8a', 'armeabi-v7a']).latest();
     expect(info.channel, 'test-a');
     expect(info.packageName, UpdateConfig.testPackage);
-    expect(info.versionCode, greaterThanOrEqualTo(95));
+    expect(info.versionCode, greaterThanOrEqualTo(96));
     expect(info.apkName, endsWith('test-arm64-v8a.apk'));
     expect(info.apkSize, greaterThan(0));
     expect(info.apkDigest, matches(RegExp(r'^sha256:[0-9a-f]{64}$')));
@@ -24,6 +24,10 @@ void main() {
         true);
     expect(
         info.isNewerThan(const AppVersion('1.14.27.7', 94,
+            packageName: UpdateConfig.testPackage)),
+        true);
+    expect(
+        info.isNewerThan(const AppVersion('1.14.27.8', 95,
             packageName: UpdateConfig.testPackage)),
         true);
     expect(
@@ -42,7 +46,11 @@ void main() {
       'apkDigest': info.apkDigest,
       'apkUrl': info.apkUrl,
       'olderSimulatedBuildDetectsUpdate': true,
-      'olderSimulatedVersions': ['1.14.27.6 (93)', '1.14.27.7 (94)'],
+      'olderSimulatedVersions': [
+        '1.14.27.6 (93)',
+        '1.14.27.7 (94)',
+        '1.14.27.8 (95)'
+      ],
       'sameSimulatedBuildIsCurrent': true,
       'realPhoneInstallationVerified': false
     };

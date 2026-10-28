@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/attendance.dart';
 import '../state/app_controller.dart';
+import '../widgets/attendance_observer.dart' show AttendanceRecordConsentDialog;
 import 'attendance_web_page.dart';
 
 class AttendanceStatusPage extends StatefulWidget {
@@ -37,18 +38,22 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
   AttendanceMeeting? _selected;
   bool _manualBusy = false;
   List<AttendanceMeeting> _courses() {
-    final now = DateTime.now();
-    final meetings =
-        AttendanceSchedule.meetings(
-          now,
-          widget.app.getEffectiveCoursesForDate,
-          days: 14,
-        )..sort(
-          (a, b) => a.start
+    final now = widget.app.attendance.clock();
+    final meetings = AttendanceSchedule.meetings(
+      now,
+      widget.app.getEffectiveCoursesForDate,
+      days: 14,
+    )..sort(
+        (a, b) {
+          if (a.contains(now) != b.contains(now)) {
+            return a.contains(now) ? -1 : 1;
+          }
+          return a.start
               .difference(now)
               .abs()
-              .compareTo(b.start.difference(now).abs()),
-        );
+              .compareTo(b.start.difference(now).abs());
+        },
+      );
     final byId = <String, AttendanceMeeting>{};
     for (final meeting in meetings) {
       byId.putIfAbsent(meeting.canvasId, () => meeting);
@@ -97,6 +102,35 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
     if (mounted) await _inspect(meeting);
   }
 
+  Future<void> _execute(
+      AttendanceRecord record, AttendanceMeeting meeting) async {
+    if (_manualBusy || widget.app.attendance.executing) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AttendanceRecordConsentDialog(name: meeting.course.name),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _manualBusy = true);
+    try {
+      final attendance = widget.app.attendance;
+      if (await attendance.retryExecution(record, meeting) && mounted) {
+        await Navigator.of(context).push(MaterialPageRoute<void>(
+          builder: (_) => AttendanceWebPage(
+              app: widget.app, meeting: meeting, execute: true),
+        ));
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+          attendance.detail.isEmpty
+              ? '当前记录已完成或检测窗口已结束，请重新检测'
+              : attendance.detail,
+        )));
+      }
+    } finally {
+      if (mounted) setState(() => _manualBusy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = widget.app;
@@ -122,7 +156,7 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
               const Text('运行方式', style: TextStyle(fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
               const Text(
-                '课前 10 分钟至课后 10 分钟，每 30 秒检查。后台使用带常驻通知的原生服务；需允许准时启动，且受系统省电与网络限制。Android 15 及以上后台同步服务累计时限为 24 小时内 6 小时，达到时限或启动受限后降级为系统周期检查（最短 15 分钟）。后台发现签到通过通知进入执行弹窗。',
+                '课前 5 分钟至课后 5 分钟，每 30 秒检查；可识别课前 30 分钟内创建的未签到记录。后台使用带常驻通知的原生服务；需允许准时启动，且受系统省电与网络限制。Android 15 及以上后台同步服务累计时限为 24 小时内 6 小时，达到时限或启动受限后降级为系统周期检查（最短 15 分钟）。后台发现签到通过通知进入执行弹窗。',
               ),
               const SizedBox(height: 8),
               Text(
@@ -148,25 +182,38 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
                   style: TextStyle(fontWeight: FontWeight.w700),
                 ),
                 const Text('点击课程检查真实记录；右侧入口打开学校页面并复用当前会话。若要求验证码，请自行完成。'),
-                for (final meeting in courses)
+                for (final meeting in courses) ...[
                   ListTile(
                     title: Text(meeting.course.name),
                     subtitle:
                         app.attendance.recordSnapshots[meeting.canvasId] == null
-                        ? null
-                        : Text(
-                            '${app.attendance.recordSnapshots[meeting.canvasId]!.summary}'
-                            '${app.attendance.recordFailures[meeting.canvasId] == null || !app.attendance.recordSnapshots[meeting.canvasId]!.successful ? '' : '\n本次检测：${app.attendance.recordFailures[meeting.canvasId]!.summary}；保留上次记录'}',
-                          ),
+                            ? null
+                            : Text(
+                                '${app.attendance.recordStatus(meeting)}'
+                                '${app.attendance.recordFailures[meeting.canvasId] == null || !app.attendance.recordSnapshots[meeting.canvasId]!.successful ? '' : '\n本次检测：${app.attendance.recordFailures[meeting.canvasId]!.summary}；保留上次记录'}',
+                              ),
                     onTap: _manualBusy ? null : () => _inspect(meeting),
                     trailing: IconButton(
                       icon: const Icon(Icons.chevron_right),
                       tooltip: '打开点名签到',
-                      onPressed: app.attendance.enabled
-                          ? () => _open(meeting)
-                          : null,
+                      onPressed:
+                          app.attendance.enabled ? () => _open(meeting) : null,
                     ),
                   ),
+                  if (app.attendance.executableRecord(meeting)
+                      case final record?)
+                    Padding(
+                      padding: const EdgeInsets.only(
+                          left: 16, right: 16, bottom: 12),
+                      child: FilledButton.icon(
+                        onPressed: _manualBusy
+                            ? null
+                            : () => _execute(record, meeting),
+                        icon: const Icon(Icons.play_circle_outline),
+                        label: const Text('执行签到／重新尝试'),
+                      ),
+                    ),
+                ],
               ],
               const SizedBox(height: 12),
               OutlinedButton.icon(

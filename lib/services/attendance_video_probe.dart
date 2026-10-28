@@ -92,6 +92,25 @@ const attendanceVideoProbe = r'''
     }
     return wait('正在进入当前直播，不识别历史回放');
   }
+  // Observed play-center mobile states use .no-permission for LiveNotStart.
+  // Match the player's status itself, never a course-list item or page-wide text.
+  const notStarted=all('.no-permission,.resource-error,[role="status"]')
+    .some(n=>visible(n)&&/^(直播未开始|直播尚未开始|直播未开播)$/.test(text(n)));
+  if (notStarted) {
+    state.noVideo=true;
+    return JSON.stringify({playing:false,liveState:'notStarted',viewState:state.phase,
+      message:'直播尚未开始，正在等待；可手动刷新直播或取消'});
+  }
+  const hasVideo=all('video').some(visible);
+  if (!hasVideo) state.noVideo=true;
+  else if (state.noVideo) {
+    state.noVideo=false;
+    if (!state.manual) {
+      state.started=now; state.phase='discovering'; state.attempted.clear();
+      state.pending=null; state.cleaned=false; state.closedSheet=false;
+      state.reason=''; state.playTried=false; state.revision++; state.settledAt=now;
+    }
+  }
   const layout=document.querySelector('.video-layout-control-popper');
   const mobile=document.querySelector('.live-detail-mobile');
   const mobileBar=mobile?.querySelector('.portrait-wrapper .controller-wrapper');

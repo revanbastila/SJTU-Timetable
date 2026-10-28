@@ -12,6 +12,7 @@ enum AttendancePhase {
   checking,
   pending,
   openingLive,
+  waitingLive,
   scanning,
   submitting,
   succeeded,
@@ -34,6 +35,7 @@ extension AttendancePhaseLabel on AttendancePhase {
         AttendancePhase.checking => '正在检测签到',
         AttendancePhase.pending => '发现签到，等待执行',
         AttendancePhase.openingLive => '正在打开直播',
+        AttendancePhase.waitingLive => '等待直播开始',
         AttendancePhase.scanning => '正在识别二维码',
         AttendancePhase.submitting => '正在提交',
         AttendancePhase.succeeded => '签到成功',
@@ -45,7 +47,7 @@ extension AttendancePhaseLabel on AttendancePhase {
         AttendancePhase.completed => '最近签到已完成',
         AttendancePhase.noNew => '当前没有新签到',
         AttendancePhase.history => '仅有历史未签到记录',
-        AttendancePhase.unknownOpen => '签到开放状态待核实',
+        AttendancePhase.unknownOpen => '未签到，开放状态未知',
         AttendancePhase.noEntry => '课程未提供点名签到',
       };
 }
@@ -62,8 +64,10 @@ class AttendanceMeeting {
   String get key => '$canvasId:${start.toUtc().millisecondsSinceEpoch}';
   // Expand only after consecutive lessons have been merged. Actual lesson
   // bounds and the meeting identity remain unchanged.
-  DateTime get detectionStart => start.subtract(const Duration(minutes: 10));
-  DateTime get detectionEnd => end.add(const Duration(minutes: 10));
+  DateTime get detectionStart => start.subtract(const Duration(minutes: 5));
+  DateTime get detectionEnd => end.add(const Duration(minutes: 5));
+  // A teacher can create the sign record before the live/detection window.
+  DateTime get recordStart => start.subtract(const Duration(minutes: 30));
   bool contains(DateTime now) =>
       !now.isBefore(detectionStart) && now.isBefore(detectionEnd);
   Map<String, Object?> toMap() => {
@@ -72,6 +76,7 @@ class AttendanceMeeting {
         'name': course.name,
         'start': detectionStart.toUtc().millisecondsSinceEpoch,
         'end': detectionEnd.toUtc().millisecondsSinceEpoch,
+        'recordStart': recordStart.toUtc().millisecondsSinceEpoch,
       };
 }
 
@@ -169,7 +174,7 @@ class AttendanceTask {
       courseCode.isNotEmpty &&
       serverActive &&
       state == 'UNNORMAL' &&
-      !createdAt.isBefore(meeting.detectionStart) &&
+      !createdAt.isBefore(meeting.recordStart) &&
       createdAt.isBefore(meeting.detectionEnd) &&
       !createdAt.isAfter(now) &&
       (expiresAt == null || now.isBefore(expiresAt!));
@@ -266,7 +271,7 @@ class AttendanceRecord {
       canvasId == meeting.canvasId &&
       unsigned &&
       meeting.contains(now) &&
-      !createdAt.isBefore(meeting.detectionStart) &&
+      !createdAt.isBefore(meeting.recordStart) &&
       createdAt.isBefore(meeting.detectionEnd) &&
       !createdAt.isAfter(now);
 }

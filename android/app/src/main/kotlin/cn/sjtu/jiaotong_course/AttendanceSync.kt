@@ -445,7 +445,7 @@ object AttendanceSync {
         val windows=JSONArray(p.getString("windows","[]"))
         return (0 until windows.length()).any {
             val w=windows.getJSONObject(it); val start=w.optLong("start"); val end=w.optLong("end")
-            w.optString("courseId")==id && now>=start && now<end && created>=start && created<end && created<=now
+            w.optString("courseId")==id && AttendanceWindow.contains(now,created,start,end,w.optLong("recordStart",start))
         }
     }
     private fun reminders(c: Context): JSONObject {

@@ -23,10 +23,10 @@ void main() {
       );
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('window includes exactly ten minutes before and after actual lesson',
+  test('window includes exactly five minutes before and after actual lesson',
       () {
-    expect(meeting.detectionStart, DateTime.utc(2030, 1, 7, 1, 50));
-    expect(meeting.detectionEnd, DateTime.utc(2030, 1, 7, 2, 55));
+    expect(meeting.detectionStart, DateTime.utc(2030, 1, 7, 1, 55));
+    expect(meeting.detectionEnd, DateTime.utc(2030, 1, 7, 2, 50));
     expect(
         meeting.contains(
             meeting.detectionStart.subtract(const Duration(microseconds: 1))),
@@ -46,15 +46,17 @@ void main() {
     expect(meeting.toMap()['start'],
         meeting.detectionStart.millisecondsSinceEpoch);
     expect(meeting.toMap()['end'], meeting.detectionEnd.millisecondsSinceEpoch);
+    expect(meeting.toMap()['recordStart'],
+        meeting.recordStart.millisecondsSinceEpoch);
     expect(
         task(meeting.detectionStart).eligible(meeting, meeting.detectionStart),
         isTrue);
     expect(
-        task(meeting.end.add(const Duration(minutes: 5)))
-            .eligible(meeting, meeting.end.add(const Duration(minutes: 6))),
+        task(meeting.end.add(const Duration(minutes: 3)))
+            .eligible(meeting, meeting.end.add(const Duration(minutes: 4))),
         isTrue);
     expect(
-        task(meeting.detectionStart.subtract(const Duration(seconds: 1)))
+        task(meeting.recordStart.subtract(const Duration(seconds: 1)))
             .eligible(meeting, meeting.start),
         isFalse);
     expect(
@@ -65,11 +67,11 @@ void main() {
       () {
     final midnight = AttendanceMeeting(
       course: fixtureCourse(),
-      start: DateTime.utc(2030, 1, 6, 16, 5), // Shanghai 00:05
+      start: DateTime.utc(2030, 1, 6, 16, 3), // Shanghai 00:03
       end: DateTime.utc(2030, 1, 6, 16, 50),
     );
-    expect(midnight.contains(DateTime.utc(2030, 1, 6, 15, 55)), isTrue);
-    expect(midnight.contains(DateTime.utc(2030, 1, 6, 15, 54, 59)), isFalse);
+    expect(midnight.contains(DateTime.utc(2030, 1, 6, 15, 58)), isTrue);
+    expect(midnight.contains(DateTime.utc(2030, 1, 6, 15, 57, 59)), isFalse);
   });
 
   testWidgets('enters at boundary, polls every 30 seconds, stops at end',
@@ -181,7 +183,7 @@ void main() {
     await tester.pump();
     expect(controller.pending, isNotNull);
     await controller.cancel();
-    now = meeting.end.add(const Duration(minutes: 5));
+    now = meeting.end.add(const Duration(minutes: 3));
     await controller.check();
     expect(controller.pending, isNull);
     expect(backend.acknowledgments, ['91:task']);
