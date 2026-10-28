@@ -2,42 +2,42 @@
   "schemaVersion": 1,
   "channel": "test-a",
   "packageName": "cn.sjtu.jiaotong_course.slimtest.a",
-  "versionName": "1.14.27.9",
-  "versionCode": 96,
-  "releaseTag": "v1.14.27.9-test",
-  "releaseName": "交大课表 1.14.27.9 · A 测试版",
-  "releasePageUrl": "https://github.com/revanbastila/SJTU-Timetable/releases/tag/v1.14.27.9-test",
-  "publishedAt": "2026-10-28T02:44:27Z",
-  "releaseNotes": "- 修复课前提前创建的签到记录漏弹窗；课前后各 5 分钟检查，回溯课前 30 分钟。\n- 增加手动执行／重试；未开播时等待，支持刷新与取消，延迟开播后重新选择 PPT。\n- 335 项 Flutter 回归、27 项播放器脚本及原生时间窗口验证通过；新版手机安装与真实课堂服务端签到仍待验收。",
-  "sourceCommit": "b6ef03c5c3325257b94f19df47d38bdcd501d91c",
+  "versionName": "1.14.27.10",
+  "versionCode": 97,
+  "releaseTag": "v1.14.27.10-test",
+  "releaseName": "交大课表 1.14.27.10 · A 测试版",
+  "releasePageUrl": "https://github.com/revanbastila/SJTU-Timetable/releases/tag/v1.14.27.10-test",
+  "publishedAt": "2026-10-28T10:35:43Z",
+  "releaseNotes": "- 新签到加入日程消息栏和未读红点，重复检测更新同一条，点击进入对应课程签到页。\n- 支持完成状态更新、后台缓存补入、重启恢复、已读保持和账号隔离；适配深浅色与主题切换。\n- 342 项 Flutter 回归、27 项播放器脚本与原生窗口校验通过；本版手机后台恢复及真实课堂签到仍待验收。",
+  "sourceCommit": "09e2220fdae723c90c308333d1cf13e08f9fd38f",
   "assets": [
     {
       "abi": "arm64-v8a",
-      "name": "jiaotong_course-1.14.27.9-test-arm64-v8a.apk",
-      "size": 10275682,
-      "sha256": "e42bcb0484573c34a59084c2a2dc1cd9d0023e340a398189c49955dde7977b28",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.9-test/jiaotong_course-1.14.27.9-test-arm64-v8a.apk"
+      "name": "jiaotong_course-1.14.27.10-test-arm64-v8a.apk",
+      "size": 10285730,
+      "sha256": "bb88aceb89e2dfb3a78ad2fc82a13b96d50ec1f96657ce48a0db6781059a34a8",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.10-test/jiaotong_course-1.14.27.10-test-arm64-v8a.apk"
     },
     {
       "abi": "armeabi-v7a",
-      "name": "jiaotong_course-1.14.27.9-test-armeabi-v7a.apk",
-      "size": 9818638,
-      "sha256": "7fa204627ca1abc74f65f570ed3d1544daf5be9d14e45025495c77c1bdb47fd3",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.9-test/jiaotong_course-1.14.27.9-test-armeabi-v7a.apk"
+      "name": "jiaotong_course-1.14.27.10-test-armeabi-v7a.apk",
+      "size": 9829686,
+      "sha256": "0a338a8fc4739ad3d719c8171ea68dc9304adb16db996c9cfda4e93529e722be",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.10-test/jiaotong_course-1.14.27.10-test-armeabi-v7a.apk"
     },
     {
       "abi": "x86_64",
-      "name": "jiaotong_course-1.14.27.9-test-x86_64.apk",
-      "size": 10481498,
-      "sha256": "7d41b58afa7685280c8d6f57a41987a8fae41efa28e95b1c48837bb83fdb044b",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.9-test/jiaotong_course-1.14.27.9-test-x86_64.apk"
+      "name": "jiaotong_course-1.14.27.10-test-x86_64.apk",
+      "size": 10488006,
+      "sha256": "03ebc55362cc8013114021756b0779ff45ad90a2694f92783be895cf24a534e2",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.10-test/jiaotong_course-1.14.27.10-test-x86_64.apk"
     },
     {
       "abi": "universal",
-      "name": "jiaotong_course-1.14.27.9-test-universal.apk",
-      "size": 26983468,
-      "sha256": "2a0fe896b85492daf8f24d4f75cdb6649ef7298b032ab31173710fb8f7330ed8",
-      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.9-test/jiaotong_course-1.14.27.9-test-universal.apk"
+      "name": "jiaotong_course-1.14.27.10-test-universal.apk",
+      "size": 27009312,
+      "sha256": "94d7e3bb6905421b53fd2f17542b0b416b8507d8a91449686b91bfd879db18ac",
+      "url": "https://github.com/revanbastila/SJTU-Timetable/releases/download/v1.14.27.10-test/jiaotong_course-1.14.27.10-test-universal.apk"
     }
   ]
 }
