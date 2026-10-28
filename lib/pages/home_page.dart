@@ -12,6 +12,7 @@ import '../widgets/course_tile.dart';
 import '../widgets/draggable_unread_badge.dart';
 import 'course_detail_page.dart';
 import 'portal_sync_page.dart';
+import 'attendance_status_page.dart';
 
 ({Course? course, bool isInClass}) featuredCourseAt(
   List<Course> courses,
@@ -393,7 +394,9 @@ class _DashboardAnnouncements extends StatelessWidget {
                   alignment: Alignment.centerRight,
                   child: Text('已读'),
                 ),
-                child: _MessageTile(app: app, entry: items[index]),
+                child: Material(
+                    color: Colors.transparent,
+                    child: _MessageTile(app: app, entry: items[index])),
               ),
             ),
     );
@@ -411,7 +414,9 @@ class _MessageTile extends StatelessWidget {
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).colorScheme.primaryContainer,
           child: Icon(
-            Icons.campaign_outlined,
+            entry.attendanceMessage == null
+                ? Icons.campaign_outlined
+                : Icons.qr_code_scanner,
             color: Theme.of(context).colorScheme.primary,
           ),
         ),
@@ -424,15 +429,24 @@ class _MessageTile extends StatelessWidget {
         subtitle: Text(
           [
             entry.sourceLabel,
+            if (entry.attendanceMessage case final message?)
+              '签到 · ${message.statusAt(app.attendance.clock())}',
             _date(entry.createdAt),
           ].where((s) => s.isNotEmpty).join(' · '),
-          maxLines: 1,
+          maxLines: entry.attendanceMessage == null ? 1 : 2,
           overflow: TextOverflow.ellipsis,
         ),
         trailing: const Icon(Icons.chevron_right),
         onTap: () async {
           await app.markMessageRead(entry.key);
           if (!context.mounted) return;
+          if (entry.attendanceMessage case final message?) {
+            await Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => AttendanceStatusPage(
+                  app: app, initialCanvasId: message.record.canvasId),
+            ));
+            return;
+          }
           final item = entry.canvasItem!;
           final course = entry.timetableCourse;
           await Navigator.of(context).push(

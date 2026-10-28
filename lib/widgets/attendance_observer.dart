@@ -28,6 +28,7 @@ class _AttendanceObserverState extends State<AttendanceObserver>
     _events = widget.app.attendanceBackend.events.listen((_) {
       _scheduleSignature = '';
       _schedule();
+      unawaited(widget.app.attendance.refreshMessages());
       unawaited(widget.app.attendance.check());
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _schedule());

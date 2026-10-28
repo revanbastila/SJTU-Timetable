@@ -167,6 +167,16 @@ object AttendanceSync {
                     result.success(null)
                 }
                 "notify", "acknowledge" -> result.success(null) // legacy channel, no submission.
+                "recordMessages" -> synchronized(recordLock) {
+                    val p=prefs(activity)
+                    val account=call.argument<String>("account") ?: ""
+                    if(account.isBlank() || p.getString("account","")!=account) {
+                        result.success(mapOf("status" to "cancelled"))
+                    } else {
+                        val rows=JSONArray(p.getString("record_messages_v1","[]"))
+                        result.success(mapOf("status" to "ok", "account" to account, "messages" to jsonValue(rows)))
+                    }
+                }
                 "tabs", "records", "submitRecord" -> {
                     val generation = revision.get()
                     val execution = executionRevision.get()
@@ -375,6 +385,7 @@ object AttendanceSync {
         synchronized(recordLock) {
             if (generation != revision.get()) throw ReadFailure("cancelled")
             p.edit().putStringSet("observed_$id",rows.keys.toSet()).putString("snapshot_$id",JSONArray(sorted).toString()).commit()
+            storeMessages(c,id,sorted)
             val queue = JSONObject(p.getString("record_queue_v2","{}")!!)
             val states=reminders(c)
             for (row in sorted) if (!isCurrent(c,id,row)) {
@@ -438,6 +449,35 @@ object AttendanceSync {
     private fun cachedRows(c: Context,id: String): List<JSONObject> {
         val rows = JSONArray(prefs(c).getString("snapshot_$id","[]"))
         return (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }
+    }
+    // Runs under recordLock after a successful own-record read, in foreground
+    // or background. Recording a message never claims/handles a reminder.
+    private fun storeMessages(c: Context,id: String,rows: List<JSONObject>) {
+        val p=prefs(c); if(p.getString("account","").isNullOrBlank()) return
+        val now=System.currentTimeMillis(); val cutoff=now-30*24*60*60_000L
+        val saved=JSONArray(p.getString("record_messages_v1","[]"))
+        val messages=linkedMapOf<String,JSONObject>()
+        for(i in 0 until saved.length()) {
+            val item=saved.optJSONObject(i) ?: continue
+            if(item.optLong("discoveredAt")>=cutoff) messages[item.optString("key")]=item
+        }
+        val windows=JSONArray(p.getString("windows","[]"))
+        for(row in rows) {
+            val key=row.getString("key"); val previous=messages[key]
+            if(previous!=null) {
+                previous.put("state",row.optString("state")).put("checkedAt",now)
+                continue
+            }
+            if(row.optString("state")!="UNNORMAL") continue
+            val created=row.optLong("createdAt",Long.MIN_VALUE)
+            val window=(0 until windows.length()).mapNotNull { windows.optJSONObject(it) }.firstOrNull {
+                it.optString("courseId")==id && AttendanceWindow.discoverable(now,created,it.optLong("recordStart",it.optLong("start")),it.optLong("end"))
+            } ?: continue
+            messages[key]=JSONObject().put("key",key).put("courseId",id).put("courseName",window.optString("name","课程").take(160))
+                .put("createdAt",created).put("state","UNNORMAL").put("discoveredAt",now).put("checkedAt",now).put("windowEnd",window.optLong("end"))
+        }
+        val retained=messages.values.sortedByDescending { it.optLong("discoveredAt") }.take(200)
+        p.edit().putString("record_messages_v1",JSONArray(retained).toString()).commit()
     }
     private fun isCurrent(c: Context,id: String,row: JSONObject): Boolean {
         val p=prefs(c); if (!p.getBoolean("enabled",false) || row.optString("state")!="UNNORMAL") return false

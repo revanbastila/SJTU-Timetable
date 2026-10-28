@@ -268,12 +268,77 @@ class AttendanceRecord {
         _ => '签到状态未识别',
       };
   bool relevant(AttendanceMeeting meeting, DateTime now) =>
+      unsigned && meeting.contains(now) && createdFor(meeting, now);
+  bool createdFor(AttendanceMeeting meeting, DateTime now) =>
       canvasId == meeting.canvasId &&
-      unsigned &&
-      meeting.contains(now) &&
       !createdAt.isBefore(meeting.recordStart) &&
       createdAt.isBefore(meeting.detectionEnd) &&
       !createdAt.isAfter(now);
+}
+
+/// Account-scoped inbox metadata only; contains no session, task or QR token.
+class AttendanceMessage {
+  const AttendanceMessage(
+      {required this.record,
+      required this.courseName,
+      required this.discoveredAt,
+      required this.checkedAt,
+      required this.windowEnd});
+  final AttendanceRecord record;
+  final String courseName;
+  final DateTime discoveredAt, checkedAt, windowEnd;
+  String get key => 'attendance:record:${record.key}';
+  String statusAt(DateTime now) => record.unsigned && !now.isBefore(windowEnd)
+      ? '检测窗口已结束'
+      : record.stateLabel;
+  Map<String, Object?> toMap() => {
+        'key': record.key,
+        'courseId': record.canvasId,
+        'courseName': courseName,
+        'createdAt': record.createdAt.toUtc().millisecondsSinceEpoch,
+        'state': record.state,
+        'discoveredAt': discoveredAt.toUtc().millisecondsSinceEpoch,
+        'checkedAt': checkedAt.toUtc().millisecondsSinceEpoch,
+        'windowEnd': windowEnd.toUtc().millisecondsSinceEpoch,
+      };
+  factory AttendanceMessage.fromMap(Map<dynamic, dynamic> map) {
+    final id = map['courseId'],
+        key = map['key'],
+        name = map['courseName'],
+        state = map['state'];
+    if (id is! String ||
+        !RegExp(r'^\d+$').hasMatch(id) ||
+        key is! String ||
+        !key.startsWith('$id:') ||
+        key.length > 512 ||
+        name is! String ||
+        name.trim().isEmpty ||
+        name.length > 160 ||
+        state is! String ||
+        state.isEmpty ||
+        ['createdAt', 'discoveredAt', 'checkedAt', 'windowEnd']
+            .any((k) => map[k] is! int)) {
+      throw const FormatException('签到消息格式无效');
+    }
+    DateTime date(String key) =>
+        DateTime.fromMillisecondsSinceEpoch(map[key] as int, isUtc: true);
+    final created = date('createdAt'),
+        discovered = date('discoveredAt'),
+        checked = date('checkedAt'),
+        end = date('windowEnd');
+    if (discovered.isBefore(created) ||
+        !discovered.isBefore(end) ||
+        checked.isBefore(discovered)) {
+      throw const FormatException('签到消息时间无效');
+    }
+    return AttendanceMessage(
+        record: AttendanceRecord(
+            key: key, canvasId: id, createdAt: created, state: state),
+        courseName: name,
+        discoveredAt: discovered,
+        checkedAt: checked,
+        windowEnd: end);
+  }
 }
 
 class AttendanceSnapshot {

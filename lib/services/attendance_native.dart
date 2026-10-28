@@ -10,6 +10,7 @@ class NativeAttendanceBackend
         AttendanceBackend,
         AttendanceRecordBackend,
         AttendanceRecordExecutionBackend,
+        AttendanceMessageBackend,
         AttendancePresentationBackend {
   static const channel = MethodChannel('cn.sjtu.jiaotong_course/attendance');
   bool _foreground = true;
@@ -31,6 +32,24 @@ class NativeAttendanceBackend
       throw const AttendanceFailure(AttendancePhase.limited, '当前设备暂不支持此功能');
     }
     return data;
+  }
+
+  @override
+  Future<List<AttendanceMessage>> readRecordMessages(String account) async {
+    final data = await _map('recordMessages', {'account': account});
+    if (data['status'] != 'ok' ||
+        data['account'] != account ||
+        data['messages'] is! List) {
+      return const [];
+    }
+    final result = <AttendanceMessage>[];
+    for (final row in (data['messages'] as List).take(200)) {
+      if (row is! Map) continue;
+      try {
+        result.add(AttendanceMessage.fromMap(row));
+      } catch (_) {/* Skip malformed inbox entries. */}
+    }
+    return result;
   }
 
   @override

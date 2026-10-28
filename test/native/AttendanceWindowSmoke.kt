@@ -17,5 +17,9 @@ fun main() {
     check(!AttendanceWindow.contains(start, start + 1, start, until, lookback))
     check(!AttendanceWindow.contains(start, created, start, until)) // old config fallback
     check(AttendanceWindow.contains(start, start, start, until))
+    check(AttendanceWindow.discoverable(created, created, lookback, until)) // inbox before polling starts
+    check(!AttendanceWindow.discoverable(created, created+1, lookback, until))
+    check(!AttendanceWindow.discoverable(start, lookback-1, lookback, until))
+    check(!AttendanceWindow.discoverable(until, created, lookback, until))
     println("PASS native reminder/submit window, early record boundaries, future record and old config fallback")
 }

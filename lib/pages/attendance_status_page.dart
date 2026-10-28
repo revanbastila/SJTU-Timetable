@@ -8,8 +8,10 @@ import '../widgets/attendance_observer.dart' show AttendanceRecordConsentDialog;
 import 'attendance_web_page.dart';
 
 class AttendanceStatusPage extends StatefulWidget {
-  const AttendanceStatusPage({super.key, required this.app});
+  const AttendanceStatusPage(
+      {super.key, required this.app, this.initialCanvasId});
   final AppController app;
+  final String? initialCanvasId;
   @override
   State<AttendanceStatusPage> createState() => _AttendanceStatusPageState();
 }
@@ -45,6 +47,11 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
       days: 14,
     )..sort(
         (a, b) {
+          final target = widget.initialCanvasId;
+          if (target != null &&
+              (a.canvasId == target) != (b.canvasId == target)) {
+            return a.canvasId == target ? -1 : 1;
+          }
           if (a.contains(now) != b.contains(now)) {
             return a.contains(now) ? -1 : 1;
           }
@@ -69,8 +76,14 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final courses = _courses();
       if (mounted && courses.isNotEmpty) {
+        if (widget.initialCanvasId != null &&
+            !courses.any((m) => m.canvasId == widget.initialCanvasId)) {
+          return;
+        }
         unawaited(
-          _inspect(widget.app.attendance.currentMeeting ?? courses.first),
+          _inspect(widget.initialCanvasId == null
+              ? widget.app.attendance.currentMeeting ?? courses.first
+              : courses.first),
         );
       }
     });
@@ -143,6 +156,11 @@ class _AttendanceStatusPageState extends State<AttendanceStatusPage>
           return ListView(
             padding: const EdgeInsets.all(20),
             children: [
+              if (widget.initialCanvasId != null &&
+                  !courses.any((m) => m.canvasId == widget.initialCanvasId))
+                const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: Text('该签到课程当前不在课表中，请同步课程后重试')),
               ListTile(
                 leading: const Icon(Icons.qr_code_scanner),
                 title: Text(app.attendance.phase.label),

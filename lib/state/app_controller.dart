@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../models/app_theme.dart';
+import '../models/attendance.dart';
 import '../models/canvas_data.dart';
 import '../models/course.dart';
 import '../models/week_rules.dart';
@@ -50,7 +51,9 @@ class AppController extends ChangeNotifier {
         database = database ?? AppDatabase(),
         calendarRepository = calendarRepository ?? TeachingCalendarRepository(),
         _calendarClock = calendarClock ?? shanghaiNow,
-        credentialStore = credentialStore ?? SecureCredentialStore();
+        credentialStore = credentialStore ?? SecureCredentialStore() {
+    attendance?.addListener(_attendanceMessagesChanged);
+  }
 
   final NotificationService notifications;
   final TeachingCalendarRepository calendarRepository;
@@ -67,8 +70,22 @@ class AppController extends ChangeNotifier {
   AttendanceController? _attendance;
   NativeAttendanceBackend get attendanceBackend =>
       _attendanceBackend ??= NativeAttendanceBackend();
-  AttendanceController get attendance =>
-      _attendance ??= AttendanceController(backend: attendanceBackend);
+  AttendanceController get attendance {
+    if (_attendance == null) {
+      _attendance = AttendanceController(backend: attendanceBackend);
+      _attendance!.addListener(_attendanceMessagesChanged);
+    }
+    return _attendance!;
+  }
+
+  int _attendanceMessageRevision = -1;
+  void _attendanceMessagesChanged() {
+    final revision = _attendance?.messageRevision;
+    if (_disposed || revision == _attendanceMessageRevision) return;
+    _attendanceMessageRevision = revision ?? -1;
+    notifyListeners();
+  }
+
   final AppDatabase database;
   final CredentialStore credentialStore;
   List<Course> courses = [];
@@ -179,15 +196,23 @@ class AppController extends ChangeNotifier {
 
   CanvasSnapshot? _feedCanvas;
   List<Course>? _feedCourses;
+  List<AttendanceMessage>? _feedAttendanceMessages;
   List<MessageFeedEntry> _messages = const [];
 
   // The snapshot/list are replaced on sync, linking and logout. Reading UI
   // state never remerges/sorts the same messages or modifies source data.
   List<MessageFeedEntry> get messageFeed {
-    if (!identical(canvas, _feedCanvas) || !identical(courses, _feedCourses)) {
-      _messages = List.unmodifiable(buildMessageFeed(canvas, courses));
+    final attendanceMessages = loggedIn
+        ? _attendance?.messagesFor(username) ?? const <AttendanceMessage>[]
+        : const <AttendanceMessage>[];
+    if (!identical(canvas, _feedCanvas) ||
+        !identical(courses, _feedCourses) ||
+        !identical(attendanceMessages, _feedAttendanceMessages)) {
+      _messages = List.unmodifiable(buildMessageFeed(canvas, courses,
+          attendanceMessages: attendanceMessages));
       _feedCanvas = canvas;
       _feedCourses = courses;
+      _feedAttendanceMessages = attendanceMessages;
     }
     return _messages;
   }
@@ -1151,6 +1176,7 @@ class AppController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _attendance?.removeListener(_attendanceMessagesChanged);
     _attendance?.dispose();
     _calendarRefreshTimer?.cancel();
     _calendarDayTimer?.cancel();

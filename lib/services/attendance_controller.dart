@@ -54,6 +54,10 @@ abstract interface class AttendancePresentationBackend {
   Future<void> recordDisplayed(AttendanceRecord record);
 }
 
+abstract interface class AttendanceMessageBackend {
+  Future<List<AttendanceMessage>> readRecordMessages(String account);
+}
+
 class AttendanceController extends ChangeNotifier {
   AttendanceController({required this.backend, DateTime Function()? clock})
       : clock = clock ?? DateTime.now;
@@ -81,6 +85,110 @@ class AttendanceController extends ChangeNotifier {
   final Map<String, Object> _checkingRecords = {};
   final Map<String, int> _recordFailures = {};
   final Set<String> _displayedRecords = {};
+  List<AttendanceMessage> _messages = const [];
+  int messageRevision = 0;
+  List<AttendanceMessage> messagesFor(String account) => account.isNotEmpty &&
+          _account == sha256.convert(utf8.encode(account)).toString()
+      ? _messages
+      : const [];
+
+  void _mergeMessages(Iterable<AttendanceMessage> incoming,
+      {bool persist = true}) {
+    if (_disposed || _account.isEmpty) return;
+    final cutoff = clock().subtract(const Duration(days: 30));
+    final byKey = {for (final item in _messages) item.key: item};
+    for (final item in incoming) {
+      if (item.discoveredAt.isAfter(clock()) ||
+          item.discoveredAt.isBefore(cutoff)) {
+        continue;
+      }
+      final old = byKey[item.key];
+      if (old == null) {
+        byKey[item.key] = item;
+      } else {
+        final latest = item.checkedAt.isBefore(old.checkedAt) ? old : item;
+        byKey[item.key] = AttendanceMessage(
+            record: latest.record,
+            courseName: latest.courseName,
+            discoveredAt: old.discoveredAt.isBefore(item.discoveredAt)
+                ? old.discoveredAt
+                : item.discoveredAt,
+            checkedAt: latest.checkedAt,
+            windowEnd: latest.windowEnd);
+      }
+    }
+    final next = byKey.values
+        .where((m) => !m.discoveredAt.isBefore(cutoff))
+        .toList()
+      ..sort((a, b) => b.discoveredAt.compareTo(a.discoveredAt));
+    final retained = next.take(200).toList();
+    final encoded = jsonEncode(retained.map((m) => m.toMap()).toList());
+    if (encoded == jsonEncode(_messages.map((m) => m.toMap()).toList())) return;
+    _messages = List.unmodifiable(retained);
+    messageRevision++;
+    if (persist) {
+      unawaited(_prefs?.setString('attendanceMessagesV1_$_account', encoded));
+    }
+    notifyListeners();
+  }
+
+  Future<void> refreshMessages() async {
+    if (_disposed || _account.isEmpty) return;
+    final generation = _epoch, account = _account;
+    try {
+      final rows = backend is AttendanceMessageBackend
+          ? await (backend as AttendanceMessageBackend)
+              .readRecordMessages(account)
+              .timeout(const Duration(seconds: 3))
+          : const <AttendanceMessage>[];
+      if (!_disposed && generation == _epoch && account == _account) {
+        _mergeMessages(rows);
+      }
+    } catch (_) {
+      /* Keep the last inbox during temporary native unavailability. */
+    }
+  }
+
+  void _captureMessages(AttendanceSnapshot snapshot) {
+    if (_account.isEmpty) return;
+    final now = clock();
+    final rows = <AttendanceMessage>[];
+    for (final record in snapshot.records) {
+      AttendanceMessage? previous;
+      for (final message in _messages) {
+        if (message.record.key == record.key &&
+            message.record.canvasId == record.canvasId) {
+          previous = message;
+          break;
+        }
+      }
+      if (previous != null) {
+        rows.add(AttendanceMessage(
+            record: record,
+            courseName: previous.courseName,
+            discoveredAt: previous.discoveredAt,
+            checkedAt: snapshot.checkedAt.isBefore(previous.discoveredAt)
+                ? previous.discoveredAt
+                : snapshot.checkedAt,
+            windowEnd: previous.windowEnd));
+      } else if (record.unsigned) {
+        for (final meeting in _meetings) {
+          if (record.createdFor(meeting, now) &&
+              now.isBefore(meeting.detectionEnd)) {
+            rows.add(AttendanceMessage(
+                record: record,
+                courseName: meeting.course.name,
+                discoveredAt: now,
+                checkedAt:
+                    snapshot.checkedAt.isBefore(now) ? now : snapshot.checkedAt,
+                windowEnd: meeting.detectionEnd));
+            break;
+          }
+        }
+      }
+    }
+    _mergeMessages(rows);
+  }
 
   Future<void> recordDisplayed(String key) async {
     final record = pendingRecord;
@@ -111,6 +219,7 @@ class AttendanceController extends ChangeNotifier {
     if (snapshot.successful) {
       recordSnapshots[snapshot.canvasId] = snapshot;
       recordFailures.remove(snapshot.canvasId);
+      _captureMessages(snapshot);
     } else {
       recordFailures[snapshot.canvasId] = snapshot;
       recordSnapshots.putIfAbsent(snapshot.canvasId, () => snapshot);
@@ -438,7 +547,8 @@ class AttendanceController extends ChangeNotifier {
       meetings.map((m) => m.toMap()).toList(),
     ]);
     if (signature == _configuration) return;
-    if (_account != hashed) {
+    final accountChanged = _account != hashed;
+    if (accountChanged) {
       _epoch++;
       _activeOperation = null;
       _operation++;
@@ -463,6 +573,29 @@ class AttendanceController extends ChangeNotifier {
     }
     _account = hashed;
     _meetings = meetings;
+    if (accountChanged) {
+      _messages = const [];
+      messageRevision++;
+      notifyListeners();
+      final generation = _epoch;
+      _prefs ??= await SharedPreferences.getInstance();
+      if (_disposed || generation != _epoch || _account != hashed) return;
+      try {
+        final cached = jsonDecode(
+            _prefs!.getString('attendanceMessagesV1_$hashed') ?? '[]');
+        if (cached is List) {
+          _mergeMessages(
+              cached.whereType<Map>().map((m) {
+                try {
+                  return AttendanceMessage.fromMap(m);
+                } catch (_) {
+                  return null;
+                }
+              }).whereType<AttendanceMessage>(),
+              persist: false);
+        }
+      } catch (_) {/* A corrupt inbox never changes executable records. */}
+    }
     await _configure();
     if (enabled) unawaited(check());
   }
@@ -479,6 +612,7 @@ class AttendanceController extends ChangeNotifier {
         _account,
         _meetings,
       );
+      await refreshMessages();
     } catch (_) {
       if (enabled) _queryState(AttendancePhase.limited, '后台检测暂不可用，打开应用后重试');
     }
@@ -492,6 +626,7 @@ class AttendanceController extends ChangeNotifier {
       );
     }
     if (value && enabled) unawaited(check());
+    if (value) unawaited(refreshMessages());
     if (!value) _wake?.cancel(); // Native JobScheduler is the background owner.
   }
 
@@ -775,7 +910,7 @@ class AttendanceController extends ChangeNotifier {
         if (result == AttendanceSubmitResult.success) {
           final latest = await _readRecords(meeting, manual: true);
           if (!(valid(generation) && ownsOperation(operation))) return;
-          recordSnapshots[meeting.canvasId] = latest;
+          _storeSnapshot(latest);
           final confirmed = latest.successful &&
               latest.records.any((r) => r.key == record.key && r.completed);
           await _finish(
